@@ -9,7 +9,7 @@ load_dotenv()
 if "GOOGLE_API_KEY" not in os.environ:
     os.environ["GOOGLE_API_KEY"] = input("Enter your Google API Key: ")
 
-from app.agent import build_graph
+from app.graph import build_graph
 
 def main():
     print("Stock Agent Ready. Type 'quit' to exit.")
