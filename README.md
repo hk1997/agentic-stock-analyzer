@@ -6,21 +6,24 @@ A Python-based stock analysis tool leveraging LangGraph, Gemini, and yfinance to
 
 ```
 /
-├── main.py          # Core application logic (LangGraph, Gemini, Tools)
-├── .env             # Environment variables (API Keys)
-├── requirements.txt # Project dependencies
-└── README.md        # Project documentation
+├── app/                 # Main application package
+│   ├── __init__.py
+│   ├── agent.py         # Graph definition and "compile()"
+│   ├── state.py         # State definition (AgentState)
+│   ├── tools.py         # Tool definitions (fetch_stock_price)
+├── main.py              # Application entry point
+├── .env                 # Environment variables (API Keys)
+├── requirements.txt     # Project dependencies
+└── README.md            # Project documentation
 ```
 
 ## Features Implemented
 
-### Phase 2: Autonomous Agent (Current)
-*   **LLM Function Calling:** Replaced manual string parsing with native tool binding (`bind_tools`). The LLM now intelligently decides when to call `fetch_stock_price`.
-*   **Gemini 2.5 Flash:** Upgraded to the latest efficient model for faster and more accurate responses.
-*   **Robust Tooling:** 
-    *   `fetch_stock_price` is now a proper LangChain `@tool`.
-    *   Added error handling for invalid tickers (e.g., verifying `hist.empty`).
-*   **Cyclic Graph Flow:** The graph now loops back (`Tool -> Agent`) so the agent can interpret the raw data and give a natural language response (e.g., "The price is $150").
+### Phase 2: Autonomous Agent (Refactored)
+*   **Modular Architecture:** Refactored from a monolithic script to a structured `app/` package, separating State, Tools, and Agent logic.
+*   **Standardized ToolNode:** Replaced manual tool execution with `langgraph.prebuilt.ToolNode` for robustness.
+*   **LLM Function Calling:** Native tool binding (`bind_tools`) allows Gemini to intelligently invoke `fetch_stock_price`.
+*   **Cyclic Graph Flow:** The graph loops (`Tool -> Agent`) enabling natural language interpretation of data.
 
 ### Phase 1: Foundation (Completed)
 *   **LangGraph Integration:** Set up a stateful graph with `agent` and `tool` nodes.
