@@ -63,10 +63,15 @@ graph TD
 
 - [x] **Phase 1: Foundation** (Manual Logic, Basic Graph)
 - [x] **Phase 2: Autonomous Agent** (Function Calling, Cyclic Graph)
-- [ ] **Phase 3: Advanced Analysis**
-    - [ ] Add more tools (Technical Indicators, News Sentiment).
-    - [ ] Implement multi-step reasoning (e.g., "Compare AAPL and MSFT").
-    - [ ] Add persistence (PostgreSQL/SQLite) to remember conversations.
+- [x] **Phase 1: Foundation** (Manual Logic, Basic Graph)
+- [x] **Phase 2: Autonomous Agent** (Function Calling, Cyclic Graph)
+- [x] **Phase 3: Advanced Analysis** (News Search, Local LLM, Memory)
+- [/] **Phase 4: Multi-Agent Architecture** (Supervisor Pattern, Specialized Agents)
+    - [x] **Supervisor (Router):** Implemented a central orchestrator (`app/agents/supervisor.py`) that delegates tasks.
+    - [x] **Technical Analyst:** Migrated price/indicator tools to a dedicated agent (`app/agents/technical.py`).
+    - [x] **Sentiment Analyst:** Migrated news search to a dedicated agent (`app/agents/sentiment.py`).
+    - [ ] Valuation Analyst (DCF)
+    - [ ] Quant Analyst (Backtesting)
 
 ## Setup & Usage
 
