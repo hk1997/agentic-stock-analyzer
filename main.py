@@ -1,4 +1,5 @@
 import os
+import uuid
 from dotenv import load_dotenv
 from langchain_core.messages import ToolMessage
 # Load environment variables
@@ -15,15 +16,21 @@ def main():
     
     # Build the graph
     graph = build_graph()
+    
+    # Create a unique thread ID for this session
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    print(f"Session ID: {thread_id}")
 
     while True:
         user_query = input("\nUser: ")
         if user_query.lower() in ["exit", "quit", "q"]:
             break
         
-        # Stream events
+        # Stream events with config
         events = graph.stream(
             {"messages": [("user", user_query)]},
+            config=config,
             stream_mode="values"
         )
 

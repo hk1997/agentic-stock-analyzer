@@ -2,6 +2,7 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import ToolMessage
 from .state import AgentState
 from .tools import tools
@@ -37,5 +38,8 @@ def build_graph():
     builder.add_conditional_edges("agent", should_continue, ["tool", END])
     builder.add_edge("tool", "agent")
 
-    # Compile
-    return builder.compile()
+    # Initialize memory
+    checkpointer = MemorySaver()
+
+    # Compile with checkpointer
+    return builder.compile(checkpointer=checkpointer)
