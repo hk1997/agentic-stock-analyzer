@@ -1,5 +1,6 @@
 import os
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
@@ -7,9 +8,18 @@ from langchain_core.messages import ToolMessage
 from .state import AgentState
 from .tools import tools
 
-# Initialize LLM
-# Note: Ensure GOOGLE_API_KEY is set in environment before calling this
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+# Valid providers: "gemini", "ollama"
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+
+print(f"Using Model Provider: {MODEL_PROVIDER} ({MODEL_NAME})")
+
+if MODEL_PROVIDER == "ollama":
+    llm = ChatOllama(model=MODEL_NAME)
+else:
+    llm = ChatGoogleGenerativeAI(model=MODEL_NAME)
+
+# Bind tools to the LLM
 llm_with_tools = llm.bind_tools(tools)
 
 def agent_node(state: AgentState):
