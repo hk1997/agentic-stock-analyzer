@@ -20,6 +20,7 @@ A Python-based stock analysis tool leveraging LangGraph, Gemini, and yfinance to
 ## Features Implemented
 
 ### Phase 3: Advanced Analysis (In Progress)
+*   **Local LLM Support (Ollama):** Added support for running local models (like Llama 3, Mistral) via Ollama for privacy and cost savings. Configurable via `.env`.
 *   **Memory (Persistence):** Implemented `MemorySaver` to enable multi-turn conversations and context retention.
 *   **Technical Indicators:** Added tools for RSI, SMA, and MACD calculations.
 *   **Historical Data:** Enhanced `fetch_stock_price` to retrieve price history over `n` days.
