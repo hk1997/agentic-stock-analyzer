@@ -108,5 +108,18 @@ def calculate_macd(ticker: str):
     except Exception as e:
         return f"Error calculating MACD: {e}"
 
+@tool
+def search_web(query: str):
+    """Searches the web for news, reports, or general information.
+    Use this to find *reasons* for stock moves, recent news, or current events.
+    """
+    print(f"\n   [System] Tool triggered: Searching web for '{query}'...")
+    from langchain_community.tools import DuckDuckGoSearchRun
+    try:
+        search = DuckDuckGoSearchRun()
+        return search.invoke(query)
+    except Exception as e:
+        return f"Error searching web: {e}"
+
 # Export all tools
-tools = [fetch_stock_price, calculate_rsi, calculate_sma, calculate_macd]
+tools = [fetch_stock_price, calculate_rsi, calculate_sma, calculate_macd, search_web]
