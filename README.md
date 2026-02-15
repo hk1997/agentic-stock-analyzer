@@ -19,6 +19,11 @@ A Python-based stock analysis tool leveraging LangGraph, Gemini, and yfinance to
 
 ## Features Implemented
 
+### Phase 3: Advanced Analysis (In Progress)
+*   **Technical Indicators:** Added tools for RSI, SMA, and MACD calculations.
+*   **Historical Data:** Enhanced `fetch_stock_price` to retrieve price history over `n` days.
+*   **Efficient Caching:** Implemented `lru_cache` to minimize redundant API calls during multi-tool analysis.
+
 ### Phase 2: Autonomous Agent (Refactored)
 *   **Modular Architecture:** Refactored from a monolithic script to a structured `app/` package, separating State, Tools, and Agent logic.
 *   **Standardized ToolNode:** Replaced manual tool execution with `langgraph.prebuilt.ToolNode` for robustness.
