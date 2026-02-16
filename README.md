@@ -71,7 +71,7 @@ graph TD
     - [x] **Technical Analyst:** Migrated price/indicator tools to a dedicated agent (`app/agents/technical.py`).
     - [x] **Sentiment Analyst:** Migrated news search to a dedicated agent (`app/agents/sentiment.py`).
     - [x] **Fundamental Analyst:** Implemented `app/agents/fundamental.py` to analyze financial health (P/E, Ratios, Company Profile).
-    - [ ] Valuation Analyst (DCF)
+    - [x] **Valuation Analyst:** Implemented `app/agents/valuation.py` to perform DCF analysis using systematic assumptions (CAPM, Analyst Growth).
     - [ ] Quant Analyst (Backtesting)
 
 ## Setup & Usage

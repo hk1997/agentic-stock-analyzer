@@ -8,11 +8,11 @@ from ..state import AgentState
 
 # The options the supervisor can choose from
 # "FINISH" means reply to the user.
-options = ["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "FINISH"]
+options = ["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "FINISH"]
 
 # Using Pydantic to force the LLM to choose a valid next step
 class route(BaseModel):
-    next: Literal["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "FINISH"]
+    next: Literal["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "FINISH"]
 
 system_prompt = (
     "You are a Supervisor tasked with managing a conversation between the"
@@ -20,7 +20,8 @@ system_prompt = (
     " respond with the worker to act next.\n\n"
     "Guide for choosing workers:\n"
     "- Use 'TechnicalAnalyst' for price charts, RSI, MACD, and trends.\n"
-    "- Use 'FundamentalAnalyst' for financial health, P/E ratios, company business summary, sector, and industry.\n"
+    "- Use 'FundamentalAnalyst' for business summary, sector, financial health, and ratios (P/E, Debt/Equity).\n"
+    "- Use 'ValuationAnalyst' for estimating fair value, intrinsic value, or running DCF models.\n"
     "- Use 'SentimentAnalyst' for news, recent events, and public opinion.\n\n"
     "Each worker will perform a task and respond with results. If the user's request"
     " is fully answered, respond with FINISH."
