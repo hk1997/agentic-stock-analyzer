@@ -121,5 +121,64 @@ def search_web(query: str):
     except Exception as e:
         return f"Error searching web: {e}"
 
+@tool
+def get_financial_metrics(ticker: str):
+    """Fetches key financial ratios and metrics for a company.
+    Useful for fundamental analysis.
+    Returns: P/E, PEG, PriceToBook, Profit Margins, ROE, Revenue Growth, etc.
+    """
+    print(f"\n   [System] Tool triggered: Fetching financial metrics for {ticker}...")
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Filter for key metrics to avoid overwhelming the LLM
+        metrics = {
+            "Trailing P/E": info.get("trailingPE"),
+            "Forward P/E": info.get("forwardPE"),
+            "PEG Ratio": info.get("pegRatio"),
+            "Price to Book": info.get("priceToBook"),
+            "Debt to Equity": info.get("debtToEquity"),
+            "Profit Margins": info.get("profitMargins"),
+            "Return on Equity": info.get("returnOnEquity"),
+            "Revenue Growth": info.get("revenueGrowth"),
+            "Enterprise Value/EBITDA": info.get("enterpriseToEbitda"),
+            "Beta": info.get("beta")
+        }
+        return str(metrics)
+    except Exception as e:
+        return f"Error fetching metrics for {ticker}: {e}"
+
+@tool
+def get_company_info(ticker: str):
+    """Fetches company profile and business summary.
+    Returns: Sector, Industry, Full Time Employees, Business Summary.
+    """
+    print(f"\n   [System] Tool triggered: Fetching company info for {ticker}...")
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        profile = {
+            "name": info.get("longName"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "employees": info.get("fullTimeEmployees"),
+            "summary": info.get("longBusinessSummary"),
+            "city": info.get("city"),
+            "country": info.get("country")
+        }
+        return str(profile)
+    except Exception as e:
+        return f"Error fetching profile for {ticker}: {e}"
+
 # Export all tools
-tools = [fetch_stock_price, calculate_rsi, calculate_sma, calculate_macd, search_web]
+tools = [
+    fetch_stock_price, 
+    calculate_rsi, 
+    calculate_sma, 
+    calculate_macd, 
+    search_web,
+    get_financial_metrics,
+    get_company_info
+]
