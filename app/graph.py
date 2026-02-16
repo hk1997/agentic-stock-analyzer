@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from .state import AgentState
 from .agents.technical import technical_analyst
 from .agents.sentiment import sentiment_analyst
+from .agents.fundamental import fundamental_analyst
 from .agents.supervisor import create_supervisor, supervisor_node
 from functools import partial
 
@@ -25,6 +26,7 @@ else:
 # Create the specific agent nodes
 technical_node = technical_analyst(llm)
 sentiment_node = sentiment_analyst(llm)
+fundamental_node = fundamental_analyst(llm)
 
 # Create the supervisor chain
 supervisor_chain = create_supervisor(llm)
@@ -38,6 +40,7 @@ def build_graph():
     builder.add_node("Supervisor", supervisor_node_func)
     builder.add_node("TechnicalAnalyst", technical_node)
     builder.add_node("SentimentAnalyst", sentiment_node)
+    builder.add_node("FundamentalAnalyst", fundamental_node)
     
     # Entry Point
     builder.add_edge(START, "Supervisor")
@@ -50,6 +53,7 @@ def build_graph():
         {
             "TechnicalAnalyst": "TechnicalAnalyst",
             "SentimentAnalyst": "SentimentAnalyst",
+            "FundamentalAnalyst": "FundamentalAnalyst",
             "FINISH": END
         }
     )
@@ -57,6 +61,7 @@ def build_graph():
     # 2. Agents -> Supervisor (Loop back)
     builder.add_edge("TechnicalAnalyst", "Supervisor")
     builder.add_edge("SentimentAnalyst", "Supervisor")
+    builder.add_edge("FundamentalAnalyst", "Supervisor")
     
     # Memory
     checkpointer = MemorySaver()
