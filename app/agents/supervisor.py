@@ -8,11 +8,11 @@ from ..state import AgentState
 
 # The options the supervisor can choose from
 # "FINISH" means reply to the user.
-options = ["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "FINISH"]
+options = ["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "QuantAnalyst", "FINISH"]
 
 # Using Pydantic to force the LLM to choose a valid next step
 class route(BaseModel):
-    next: Literal["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "FINISH"]
+    next: Literal["TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "QuantAnalyst", "FINISH"]
 
 system_prompt = (
     "You are a Supervisor tasked with managing a conversation between the"
@@ -22,9 +22,11 @@ system_prompt = (
     "- Use 'TechnicalAnalyst' for price charts, RSI, MACD, and trends.\n"
     "- Use 'FundamentalAnalyst' for business summary, sector, financial health, and ratios (P/E, Debt/Equity).\n"
     "- Use 'ValuationAnalyst' for estimating fair value, intrinsic value, or running DCF models.\n"
+    "- Use 'QuantAnalyst' for backtesting trading strategies (SMA crossover, RSI reversion) or calculating risk metrics (Sharpe, Volatility).\n"
     "- Use 'SentimentAnalyst' for news, recent events, and public opinion.\n\n"
-    "Each worker will perform a task and respond with results. If the user's request"
-    " is fully answered, respond with FINISH."
+    "Each worker will perform a task and respond with results. "
+    "CRITICAL: If the worker's response answers the user's question, you MUST respond with FINISH. "
+    "Do not route back to the same worker unless there is a clear error."
 )
 
 def create_supervisor(llm):

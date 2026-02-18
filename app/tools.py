@@ -282,6 +282,142 @@ def calculate_intrinsic_value(ticker: str):
         return f"Error calculating DCF for {ticker}: {e}"
 
 # Export all tools
+@tool
+def get_risk_metrics(ticker: str):
+    """Calculates risk metrics for a stock over the last year.
+    Returns: Volatility (Annualized), Sharpe Ratio, Max Drawdown.
+    """
+    print(f"\n   [System] Tool triggered: Calculating Risk Metrics for {ticker}...")
+    try:
+        # Fetch 1 year of data
+        hist = _get_stock_data(ticker, days=365)
+        if hist.empty: return f"Error: No data for {ticker}"
+        
+        # Calculate daily returns
+        hist['Returns'] = hist['Close'].pct_change().dropna()
+        
+        # 1. Annualized Volatility
+        volatility = hist['Returns'].std() * (252 ** 0.5)
+        
+        # 2. Sharpe Ratio (assuming Risk Free Rate ~ 4%)
+        risk_free_daily = 0.04 / 252
+        excess_returns = hist['Returns'] - risk_free_daily
+        sharpe_ratio = (excess_returns.mean() / hist['Returns'].std()) * (252 ** 0.5)
+        
+        # 3. Max Drawdown
+        rolling_max = hist['Close'].cummax()
+        drawdown = (hist['Close'] / rolling_max) - 1
+        max_drawdown = drawdown.min()
+        
+        return (f"--- Risk Metrics for {ticker} (1 Year) ---\n"
+                f"Annualized Volatility: {volatility*100:.2f}%\n"
+                f"Sharpe Ratio: {sharpe_ratio:.2f}\n"
+                f"Max Drawdown: {max_drawdown*100:.2f}%")
+        
+    except Exception as e:
+        return f"Error calculating risk metrics for {ticker}: {e}"
+
+@tool
+def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capital: float = 10000.0, days: int = 365):
+    """Backtests a simple trading strategy.
+    
+    Args:
+        ticker: Stock symbol
+        strategy: 'sma_crossover' (Golden Cross) or 'rsi_mean_reversion' (Buy<30, Sell>70)
+        initial_capital: Starting money (default 10,000)
+        days: Period to test (default 365)
+    """
+    print(f"\n   [System] Tool triggered: Backtesting '{strategy}' on {ticker}...")
+    try:
+        # Fetch data (need extra for SMA calculations)
+        lookback = 400 if strategy == "sma_crossover" else days + 50
+        hist = _get_stock_data(ticker, days=lookback)
+        
+        if len(hist) < 200 and strategy == "sma_crossover":
+            return "Error: Not enough data for SMA Crossover (needs 200 days)."
+            
+        # Only keep the days we want to test? No, we need previous data for indicators.
+        # We will simulate over the last 'days'
+        
+        capital = initial_capital
+        position = 0 # 0 or shares
+        
+        # Calculate Indicators
+        if strategy == "sma_crossover":
+            hist['SMA50'] = hist['Close'].rolling(window=50).mean()
+            hist['SMA200'] = hist['Close'].rolling(window=200).mean()
+            hist['Signal'] = 0
+            # 1 = Buy Signal (50 > 200), -1 = Sell Signal
+            hist.loc[hist['SMA50'] > hist['SMA200'], 'Signal'] = 1
+            
+        elif strategy == "rsi_mean_reversion":
+            delta = hist['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            hist['RSI'] = 100 - (100 / (1 + rs))
+        
+        # Simulation Loop (simplified vectorization or loop)
+        # We start trading from index -days
+        start_index = len(hist) - days
+        if start_index < 0: start_index = 0
+        
+        test_data = hist.iloc[start_index:].copy()
+        
+        for i in range(len(test_data) - 1): # Stop before last day to avoid lookahead? 
+            # Actually we act on today's close or tomorrow's open. Let's assume trade at Close.
+            today = test_data.iloc[i]
+            price = today['Close']
+            date = test_data.index[i]
+            
+            action = "HOLD"
+            
+            if strategy == "sma_crossover":
+                # Buy if Golden Cross (Signal 1) and no position
+                if today['Signal'] == 1 and position == 0:
+                    action = "BUY"
+                # Sell if Death Cross (Signal 0/ -1) and have position
+                elif today['Signal'] == 0 and position > 0:
+                    action = "SELL"
+                    
+            elif strategy == "rsi_mean_reversion":
+                # Buy Dip
+                if today['RSI'] < 30 and position == 0:
+                    action = "BUY"
+                # Sell Rip
+                elif today['RSI'] > 70 and position > 0:
+                    action = "SELL"
+            
+            # Execute
+            if action == "BUY":
+                shares_to_buy = capital // price
+                if shares_to_buy > 0:
+                    capital -= shares_to_buy * price
+                    position += shares_to_buy
+            elif action == "SELL":
+                capital += position * price
+                position = 0
+                
+        # Final Value
+        final_price = test_data.iloc[-1]['Close']
+        final_value = capital + (position * final_price)
+        total_return = ((final_value - initial_capital) / initial_capital) * 100
+        
+        # Benchmark (Buy and Hold)
+        start_price = test_data.iloc[0]['Close']
+        buy_hold_return = ((final_price - start_price) / start_price) * 100
+        
+        return (f"--- Backtest Results ({strategy}) for {ticker} ---\n"
+                f"Period: Last {days} days\n"
+                f"Initial Capital: ${initial_capital:,.2f}\n"
+                f"Final Value: ${final_value:,.2f}\n"
+                f"Total Return: {total_return:.2f}% (vs Buy & Hold: {buy_hold_return:.2f}%)\n"
+                f"Final Position: {position} shares")
+        
+    except Exception as e:
+        return f"Error backtesting {strategy}: {e}"
+
+# Export all tools
 tools = [
     fetch_stock_price, 
     calculate_rsi, 
@@ -291,5 +427,7 @@ tools = [
     get_financial_metrics,
     get_company_info,
     get_free_cash_flow,
-    calculate_intrinsic_value
+    calculate_intrinsic_value,
+    get_risk_metrics,
+    backtest_strategy
 ]
