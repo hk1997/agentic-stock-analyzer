@@ -9,6 +9,7 @@ from .agents.technical import technical_analyst
 from .agents.sentiment import sentiment_analyst
 from .agents.fundamental import fundamental_analyst
 from .agents.valuation import valuation_analyst
+from .agents.quant import quant_analyst
 from .agents.supervisor import create_supervisor, supervisor_node
 from functools import partial
 
@@ -29,6 +30,7 @@ technical_node = technical_analyst(llm)
 sentiment_node = sentiment_analyst(llm)
 fundamental_node = fundamental_analyst(llm)
 valuation_node = valuation_analyst(llm)
+quant_node = quant_analyst(llm)
 
 # Create the supervisor chain
 supervisor_chain = create_supervisor(llm)
@@ -44,6 +46,7 @@ def build_graph():
     builder.add_node("SentimentAnalyst", sentiment_node)
     builder.add_node("FundamentalAnalyst", fundamental_node)
     builder.add_node("ValuationAnalyst", valuation_node)
+    builder.add_node("QuantAnalyst", quant_node)
     
     # Entry Point
     builder.add_edge(START, "Supervisor")
@@ -58,6 +61,7 @@ def build_graph():
             "SentimentAnalyst": "SentimentAnalyst",
             "FundamentalAnalyst": "FundamentalAnalyst",
             "ValuationAnalyst": "ValuationAnalyst",
+            "QuantAnalyst": "QuantAnalyst",
             "FINISH": END
         }
     )
@@ -67,6 +71,7 @@ def build_graph():
     builder.add_edge("SentimentAnalyst", "Supervisor")
     builder.add_edge("FundamentalAnalyst", "Supervisor")
     builder.add_edge("ValuationAnalyst", "Supervisor")
+    builder.add_edge("QuantAnalyst", "Supervisor")
     
     # Memory
     checkpointer = MemorySaver()
