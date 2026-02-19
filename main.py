@@ -1,7 +1,7 @@
 import os
 import uuid
 from dotenv import load_dotenv
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, AIMessage
 # Load environment variables
 load_dotenv()
 
@@ -27,20 +27,37 @@ def main():
         if user_query.lower() in ["exit", "quit", "q"]:
             break
         
-        # Stream events with config
+        # Stream events (default mode returns {node_name: state_update})
         events = graph.stream(
             {"messages": [("user", user_query)]},
             config=config,
-            stream_mode="values"
+            stream_mode="updates" 
         )
 
         for event in events:
-            last_msg = event["messages"][-1]
-            
-            if isinstance(last_msg, ToolMessage):
-                print(f"Tool Output: {last_msg.content}")
-            elif hasattr(last_msg, "content") and last_msg.content:
-                print(f"Agent: {last_msg.content}")
+            for node, values in event.items():
+                print(f"\n--- Node Triggered: {node} ---")
+                
+                # Check for "next" routing decision
+                if "next" in values:
+                    print(f"Supervisor Decision: {values['next']}")
+                
+                # Check for messages
+                if "messages" in values:
+                    for msg in values["messages"]:
+                        # 1. Check for Tool Calls (Agent asking to run a tool)
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            for tool_call in msg.tool_calls:
+                                print(f"  [Action] Calling Tool: '{tool_call['name']}'")
+                                print(f"  [Args]   {tool_call['args']}")
+                        
+                        # 2. Check for Tool Outputs
+                        elif isinstance(msg, ToolMessage):
+                            print(f"  [Result] Tool Output: {msg.content[:200]}..." if len(msg.content) > 200 else f"  [Result] Tool Output: {msg.content}")
+                            
+                        # 3. Check for Agent Text Response
+                        elif hasattr(msg, "content") and msg.content:
+                            print(f"  [Response] {msg.content}")
 
 if __name__ == "__main__":
     main()
