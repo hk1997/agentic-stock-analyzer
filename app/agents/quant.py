@@ -15,6 +15,8 @@ def quant_analyst(llm):
             "and 'get_risk_metrics' to assess volatility and Sharpe Ratio. "
             "Always maintain a scientific, data-driven tone. Warn the user that past performance is not indicative of future results. "
             "CRITICAL: Answer the user's question directly. DO NOT ask conversational follow-up questions. "
-            "If you have provided the requested metrics or backtest, just output the results and stop."
+            "If you have provided the requested metrics or backtest, just output the results and stop.\n\n"
+            "CRITICAL CONSTRAINTS:\n"
+            "- Do NOT search for news or fundamental data."
         )
     )
