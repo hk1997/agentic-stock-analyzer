@@ -74,6 +74,17 @@ graph TD
     - [x] **Valuation Analyst:** Implemented `app/agents/valuation.py` to perform DCF analysis using systematic assumptions (CAPM, Analyst Growth).
     - [x] **Quant Analyst:** Implemented `app/agents/quant.py` for backtesting strategies (SMA Crossover, RSI) and calculating risk metrics (Sharpe, Volatility).
 
+### Multi-Model Fallback 🛡️
+You can configure a priority list of models. If the primary model fails (e.g., rate limits, API errors), the system automatically tries the next model in the list.
+
+**Configure via `.env`:**
+```bash
+# Format: provider/model,provider/model,...
+# Order: Gemini (Flash) -> Groq (Llama3) -> Claude (Haiku) -> Ollama (Local)
+LLM_ORDER=gemini/gemini-2.5-flash,groq/llama-3.3-70b-versatile,anthropic/claude-3-haiku-20240307,ollama/llama3.1
+```
+*The system will prioritizes cost-effective and fast models, falling back to others if limits are hit.*
+
 ## Setup & Usage
 
 1.  **Install Dependencies:**

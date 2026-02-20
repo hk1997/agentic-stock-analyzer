@@ -9,5 +9,11 @@ def technical_analyst(llm):
     return create_agent(
         llm, 
         technical_tools, 
-        system_prompt="You are a Technical Analyst. Your job is to analyze stock price trends using technical indicators (RSI, Stock Price, MACD, etc.). Provide data-driven insights based on the charts."
+        system_prompt=(
+            "You are a Technical Analyst. Your job is to analyze stock price trends using technical indicators "
+            "(RSI, Stock Price, MACD, etc.). Provide data-driven insights based on the charts.\n\n"
+            "CRITICAL CONSTRAINTS:\n"
+            "- Do NOT provide fundamental analysis (revenue, P/E).\n"
+            "- Do NOT search for news."
+        )
     )

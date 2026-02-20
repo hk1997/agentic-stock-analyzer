@@ -13,16 +13,11 @@ from .agents.quant import quant_analyst
 from .agents.supervisor import create_supervisor, supervisor_node
 from functools import partial
 
+from .llm import get_llm
+
 # --- LLM Setup ---
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "gemini")
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.5-flash")
-
-print(f"Graph using Model Provider: {MODEL_PROVIDER} ({MODEL_NAME})")
-
-if MODEL_PROVIDER == "ollama":
-    llm = ChatOllama(model=MODEL_NAME)
-else:
-    llm = ChatGoogleGenerativeAI(model=MODEL_NAME)
+# Initialize LLM with Fallbacks
+llm = get_llm()
 
 # --- Agents Setup ---
 # Create the specific agent nodes
