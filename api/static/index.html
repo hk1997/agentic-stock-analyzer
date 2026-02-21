@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic Stock Analyzer</title>
+  
+  <!-- Fonts & Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Recharts equivalent (Lightweight Charts via CDN) -->
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
+  <style>
+    :root {
+      --bg-deep: #05050a;
+      --bg-panel: rgba(20, 20, 30, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f0f0f5;
+      --text-muted: #88889aa0;
+      --accent-blue: #00f2fe;
+      --accent-purple: #4facfe;
+      --bullish: #00e676;
+      --bearish: #ff1744;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-deep);
+      color: var(--text-main);
+      background-image: radial-gradient(circle at top right, rgba(0, 242, 254, 0.05), transparent 40%),
+                        radial-gradient(circle at bottom left, rgba(79, 172, 254, 0.05), transparent 40%);
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+    
+    /* Layout */
+    .app-container { display: flex; height: 100vh; width: 100vw; }
+    .sidebar {
+      width: 80px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--glass-border);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 1.5rem 0;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .logo-container { margin-bottom: 3rem; color: var(--accent-blue); filter: drop-shadow(0 0 8px rgba(0,242,254,0.6)); }
+    .nav-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0.75rem; border-radius:12px; margin-bottom: 1.5rem; transition:0.3s;}
+    .nav-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+    .nav-btn.active { color: var(--accent-blue); background: rgba(0,242,254,0.1); box-shadow: inset 0 0 10px rgba(0,242,254,0.05); }
+    .mt-auto { margin-top: auto; margin-bottom: 0; }
+
+    .main-content { flex: 1; padding: 2rem 3rem; overflow-y: auto; display: flex; flex-direction: column;}
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); display:flex; align-items:center; justify-content:center; font-weight:bold; box-shadow: 0 0 15px rgba(79,172,254,0.4);}
+    
+    .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: auto auto; gap: 2rem; height: calc(100vh - 120px);}
+    .glass-panel { background: var(--bg-panel); border: 1px solid var(--glass-border); border-radius: 20px; backdrop-filter: blur(16px); padding: 1.5rem; }
+    
+    .chart-card { grid-column: 1 / 2; grid-row: 1 / 2; display:flex; flex-direction:column; }
+    .chart-container { flex: 1; width: 100%; min-height: 300px; position: relative;}
+    
+    .stats-row { grid-column: 1 / 2; grid-row: 2 / 3; display: flex; gap: 2rem; }
+    .stat-card { flex: 1; position: relative; }
+    .stat-label { font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; display:block; }
+    .stat-value { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; display:block; }
+    .badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.35rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+    .badge-bullish { color: var(--bullish); background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.2); }
+    .badge-bearish { color: var(--bearish); background: rgba(255,23,68,0.1); border: 1px solid rgba(255,23,68,0.2); }
+
+    .chat-panel { grid-column: 2 / 3; grid-row: 1 / 3; display: flex; flex-direction: column; }
+    .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
+    .chat-message { display: flex; gap: 1rem; animation: fadeIn 0.3s ease forwards; }
+    .chat-message.user { flex-direction: row-reverse; }
+    
+    .agent-avatar { background: rgba(0,242,254,0.1); color: var(--accent-blue); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(0,242,254,0.2); }
+    .message-bubble { background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 18px; border-top-left-radius: 4px; font-size: 0.95rem; line-height: 1.5; border: 1px solid rgba(255,255,255,0.05); max-width: 85%; }
+    .chat-message.user .message-bubble { background: linear-gradient(135deg, rgba(79,172,254,0.15), rgba(0,242,254,0.15)); border: 1px solid rgba(0,242,254,0.2); border-top-left-radius: 18px; border-top-right-radius: 4px; }
+    
+    .chat-input-area input { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); border-radius: 20px; padding: 1rem 1.5rem; color: var(--text-main); font-size: 0.95rem; outline: none; transition: 0.3s;}
+    .chat-input-area input:focus { border-color: var(--accent-blue); }
+
+    @keyframes fadeIn { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)} }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <aside class="sidebar">
+    <div class="logo-container"><i data-lucide="activity" style="width:32px; height:32px;"></i></div>
+    <button class="nav-btn active"><i data-lucide="layout-dashboard"></i></button>
+    <button class="nav-btn"><i data-lucide="dollar-sign"></i></button>
+    <button class="nav-btn mt-auto"><i data-lucide="settings"></i></button>
+  </aside>
+
+  <main class="main-content">
+    <header class="header">
+      <h1>Stock Analyzer</h1>
+      <div class="avatar">U</div>
+    </header>
+
+    <div class="dashboard-grid">
+      <section class="chart-card glass-panel">
+        <h2 style="margin-bottom:1rem; font-weight:500;">AAPL</h2>
+        <div id="chart" class="chart-container"></div>
+      </section>
+
+      <section class="stats-row">
+        <div class="stat-card glass-panel">
+           <span class="stat-label">P/E Ratio</span>
+           <span class="stat-value">28.5</span>
+           <div class="badge badge-bullish"><i data-lucide="arrow-up-right" style="width:14px;"></i>BULLISH</div>
+        </div>
+        <div class="stat-card glass-panel">
+           <span class="stat-label">Market Cap</span>
+           <span class="stat-value">$2.9T</span>
+           <div class="badge badge-bearish"><i data-lucide="arrow-down-right" style="width:14px;"></i>BEARISH</div>
+        </div>
+      </section>
+
+      <section class="chat-panel glass-panel">
+        <h2 style="border-bottom: 1px solid var(--glass-border); padding-bottom: 1rem; margin-bottom:1rem; font-weight:500;">Agentic Chat</h2>
+        <div class="chat-history" id="chat-history">
+          <div class="chat-message"><div class="agent-avatar"><i data-lucide="bot"></i></div><div class="message-bubble">Hello. I am your Agentic Stock Analyzer. How can I assist you today?</div></div>
+        </div>
+        <form id="chat-form" class="chat-input-area">
+          <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off"/>
+        </form>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+  // Initialize Icons
+  lucide.createIcons();
+
+  // Initialize Lightweight Charts Mockup
+  const chartProps = {
+    layout: { textColor: '#d1d4dc', background: { type: 'solid', color: 'transparent' } },
+    grid: { vertLines: { color: 'rgba(255, 255, 255, 0.05)' }, horzLines: { color: 'rgba(255, 255, 255, 0.05)' } },
+    rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
+  };
+  const chart = LightweightCharts.createChart(document.getElementById('chart'), chartProps);
+  const lineSeries = chart.addLineSeries({ color: '#00f2fe', lineWidth: 3 });
+  lineSeries.setData([
+    { time: '2023-01-01', value: 120 }, { time: '2023-02-01', value: 135 },
+    { time: '2023-03-01', value: 130 }, { time: '2023-04-01', value: 150 },
+    { time: '2023-05-01', value: 145 }, { time: '2023-06-01', value: 170 },
+  ]);
+  new ResizeObserver(entries => {
+    if (entries.length === 0 || entries[0].target !== document.getElementById('chart')) return;
+    const newRect = entries[0].contentRect;
+    chart.applyOptions({ height: newRect.height, width: newRect.width });
+  }).observe(document.getElementById('chart'));
+
+  // Chat API Link
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const chatHistory = document.getElementById('chat-history');
+
+  function addMessage(role, text) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `chat-message ${role}`;
+    const avatar = role === 'user' ? '' : `<div class="agent-avatar"><i data-lucide="${role === 'error' ? 'alert-circle' : 'bot'}"></i></div>`;
+    msgDiv.innerHTML = `${avatar}<div class="message-bubble">${text}</div>`;
+    chatHistory.appendChild(msgDiv);
+    lucide.createIcons();
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  chatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const txt = chatInput.value.trim();
+    if (!txt) return;
+    
+    addMessage('user', txt);
+    chatInput.value = '';
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: txt, thread_id: 'html-test-1' })
+      });
+      const data = await res.json();
+      addMessage('agent', data.reply || "Agent responded with no text.");
+    } catch (err) {
+      addMessage('error', "Failed to connect to backend endpoint.");
+    }
+  });
+</script>
+</body>
+</html>

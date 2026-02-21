@@ -1,0 +1,23 @@
+# Core Framework
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+sse-starlette
+
+# AI / LangGraph
+langchain-core
+langgraph
+langchain-google-genai
+langchain-ollama
+langchain-anthropic
+langchain-groq
+
+# Data
+yfinance
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+ruff
