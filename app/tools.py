@@ -119,7 +119,8 @@ def search_web(query: str):
         search = DuckDuckGoSearchRun()
         return search.invoke(query)
     except Exception as e:
-        return f"Error searching web: {e}"
+        print(f"   [Error] DuckDuckGo search failed: {e}")
+        return f"Error searching web (likely rate-limited). Provide the best analysis you can without recent news: {e}"
 
 @tool
 def get_financial_metrics(ticker: str):

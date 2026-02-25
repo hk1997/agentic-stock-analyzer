@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./api:/app/api
+      - ./main.py:/app/main.py
+    env_file:
+      - local.env
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+
+  ui:
+    build:
+      context: ./web-ui-v2
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web-ui-v2/src:/app/src
+      - ./web-ui-v2/public:/app/public
+      - ./web-ui-v2/vite.config.ts:/app/vite.config.ts
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
