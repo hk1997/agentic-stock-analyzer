@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import type { ChatMessage, AgentStartPayload, AgentOutputPayload, ErrorPayload } from '../types/api'
+import { v4 as uuidv4 } from 'uuid';
 
 let messageId = 0
 function nextId(): string {
@@ -29,12 +30,19 @@ export function useChat() {
             setDetectedTicker(tickerMatch[1])
         }
 
+        // Generate or retrieve a unqiue thread ID for this browser session
+        let threadId = sessionStorage.getItem('finance_chat_thread_id')
+        if (!threadId) {
+            threadId = uuidv4()
+            sessionStorage.setItem('finance_chat_thread_id', threadId)
+        }
+
         try {
             abortRef.current = new AbortController()
             const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, thread_id: 'react-session-1' }),
+                body: JSON.stringify({ message: text, thread_id: threadId }),
                 signal: abortRef.current.signal,
             })
 
@@ -85,10 +93,14 @@ export function useChat() {
                                     },
                                 ])
                             } else if (parsed.content) {
-                                // agent_output
+                                // We handle both agent_output and agent_output_chunk
+                                // Note: SSE parsing might send `eventType` as custom but our current hack parses raw chunk. 
+                                // To make this simple, if we get content, we will treat it as a streaming chunk 
+                                // and either start an "agent" message or append to the existing one.
+
                                 const payload = parsed as AgentOutputPayload
 
-                                // Ensure content is a string. If it's an object (like AIMessage {type, text}), stringify it or extract the text.
+                                // Ensure content is a string
                                 let contentString = typeof payload.content === 'string' ? payload.content : ''
 
                                 if (typeof payload.content === 'object' && payload.content !== null) {
@@ -99,21 +111,44 @@ export function useChat() {
                                     }
                                 }
 
-                                // Remove the step message for this agent, add the actual output
                                 setMessages((prev: ChatMessage[]) => {
-                                    const filtered = prev.filter(
-                                        (m: ChatMessage) => !(m.role === 'step' && m.agentName === payload.node)
-                                    )
-                                    return [
-                                        ...filtered,
-                                        {
-                                            id: nextId(),
-                                            role: 'agent',
-                                            content: contentString,
-                                            agentName: payload.node,
-                                            timestamp: new Date(),
-                                        },
-                                    ]
+                                    const prevMsgs = [...prev]
+
+                                    // 1. Find if we already have an "agent" message for this node in the current turn
+                                    // We'll look backwards for an agent message from this node that isn't a step.
+                                    let activeMsgIndex = -1;
+                                    for (let i = prevMsgs.length - 1; i >= 0; i--) {
+                                        if (prevMsgs[i].role === 'user') break; // stop at last user message boundary
+                                        if (prevMsgs[i].role === 'agent' && prevMsgs[i].agentName === payload.node) {
+                                            activeMsgIndex = i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (activeMsgIndex >= 0) {
+                                        // Append to existing agent message
+                                        prevMsgs[activeMsgIndex] = {
+                                            ...prevMsgs[activeMsgIndex],
+                                            content: prevMsgs[activeMsgIndex].content + contentString
+                                        }
+                                    } else {
+                                        // Create a new agent message and remove any leftover 'step' loading messages
+                                        const filtered = prevMsgs.filter(
+                                            (m: ChatMessage) => !(m.role === 'step' && m.agentName === payload.node)
+                                        )
+                                        return [
+                                            ...filtered,
+                                            {
+                                                id: nextId(),
+                                                role: 'agent',
+                                                content: contentString,
+                                                agentName: payload.node,
+                                                timestamp: new Date(),
+                                            },
+                                        ]
+                                    }
+
+                                    return prevMsgs
                                 })
                             } else if (parsed.message) {
                                 // error

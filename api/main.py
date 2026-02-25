@@ -93,46 +93,70 @@ async def chat_stream(request: ChatRequest):
     """
 
     async def event_generator() -> AsyncGenerator[dict, None]:
-        if agent_graph is None:
+        if agent_graph is None:  # In this case agent_graph is actually the builder
             yield {"event": "error", "data": json.dumps({"message": _graph_error or "Agent graph not initialized"})}
             return
 
         config = {"configurable": {"thread_id": request.thread_id}}
 
         try:
-            events = agent_graph.stream(
-                {"messages": [("user", request.message)]},
-                config=config,
-                stream_mode="updates",
-            )
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            
+            async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as checkpointer:
+                # Compile per-request with the async checkpointer
+                graph = agent_graph.compile(checkpointer=checkpointer)
 
-            final_content = ""
-            for event in events:
-                for node_name, values in event.items():
-                    # Emit agent_start
-                    yield {
-                        "event": "agent_start",
-                        "data": json.dumps({"node": node_name}),
-                    }
+                # We must use astream_events for token-by-token streaming
+                events = graph.astream_events(
+                    {"messages": [("user", request.message)]},
+                    config=config,
+                    version="v2"
+                )
 
-                    # Extract messages from agent output
-                    if "messages" in values:
-                        for msg in values["messages"]:
-                            content = getattr(msg, "content", "")
-                            if content:
-                                final_content = content
-                                yield {
-                                    "event": "agent_output",
-                                    "data": json.dumps({
-                                        "node": node_name,
-                                        "content": content,
-                                    }),
-                                }
+                current_node = None
+                final_content = ""
 
-            yield {
-                "event": "finish",
-                "data": json.dumps({"summary": final_content[:200] if final_content else "No response generated"}),
-            }
+                async for event in events:
+                    kind = event["event"]
+                    
+                    # Detect which node is currently active (Supervisor or an Analyst)
+                    if kind == "on_chain_start":
+                        # LangGraph nodes are represented as chains
+                        name = event.get("name")
+                        if name in ["IntentClassifier", "TechnicalAnalyst", "SentimentAnalyst", "FundamentalAnalyst", "ValuationAnalyst", "QuantAnalyst"]:
+                            current_node = name
+                            yield {
+                                "event": "agent_start",
+                                "data": json.dumps({"node": current_node}),
+                            }
+
+                    # Stream tokens from the chat model
+                    elif kind == "on_chat_model_stream":
+                        if current_node:  # Only stream if we are inside a specific analyst node
+                            chunk = event["data"]["chunk"]
+                            if hasattr(chunk, "content") and chunk.content:
+                                content_piece = chunk.content
+                                if isinstance(content_piece, str):
+                                    final_content += content_piece
+                                    yield {
+                                        "event": "agent_output_chunk",
+                                        "data": json.dumps({
+                                            "node": current_node,
+                                            "content": content_piece,
+                                        }),
+                                    }
+
+                    # Node finished
+                    elif kind == "on_chain_end":
+                        name = event.get("name")
+                        if name == current_node:
+                            # Optional: Emit a complete signal for this node if needed
+                            current_node = None
+
+                yield {
+                    "event": "finish",
+                    "data": json.dumps({"summary": final_content[:200] if final_content else "No response generated"}),
+                }
 
         except Exception as exc:
             yield {
@@ -184,6 +208,7 @@ async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5
 
     try:
         import yfinance as yf
+        import concurrent.futures
 
         yf_period = "1mo" if period == "10d" else period
 
@@ -193,10 +218,13 @@ async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5
         def fetch_history():
             return yf.Ticker(ticker.upper()).history(period=yf_period)
 
-        info, hist = await asyncio.gather(
-            asyncio.to_thread(fetch_info),
-            asyncio.to_thread(fetch_history)
-        )
+        # Use a dedicated ThreadPoolExecutor for yfinance to prevent blocking the main asyncio default pool
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="yf_worker") as yf_executor:
+            loop = asyncio.get_running_loop()
+            info, hist = await asyncio.gather(
+                loop.run_in_executor(yf_executor, fetch_info),
+                loop.run_in_executor(yf_executor, fetch_history)
+            )
 
         if hist.empty:
             return {"error": f"No data found for ticker '{ticker}'"}
