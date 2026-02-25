@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — Bootstrap dev environments using /tmp to bypass macOS directory restrictions
+# setup.sh — Updated to resolve PyYAML/AWS-CDK dependency conflicts
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,19 +18,25 @@ else
   echo "  ✓ Venv already exists"
 fi
 
-# Install/upgrade pip and install requirements
-"$VENV_DIR/bin/pip" install --upgrade pip --quiet
-"$VENV_DIR/bin/pip" install -r "$PROJECT_ROOT/requirements.txt" --quiet
+# 1. Upgrade core build tools FIRST (Crucial for PyYAML 6.x)
+echo "  → Upgrading build tools..."
+"$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel --quiet
+
+# 2. Pre-install PyYAML with a workaround for the "long" build process
+# This prevents the 'ResolutionImpossible' crash during the main requirements install
+echo "  → Pre-installing PyYAML..."
+"$VENV_DIR/bin/pip" install "PyYAML>=6.0.1" --no-build-isolation --quiet
+
+# 3. Install requirements
+echo "  → Installing project dependencies..."
+# Removed --quiet here so you can see exactly where it hangs if it fails again
+"$VENV_DIR/bin/pip" install -r "$PROJECT_ROOT/requirements.txt"
 echo "  ✓ Python dependencies installed"
 
 # Create symlink in project root for IDE support
 if [ ! -L "$PROJECT_ROOT/.venv" ] && [ ! -d "$PROJECT_ROOT/.venv" ]; then
   ln -sf "$VENV_DIR" "$PROJECT_ROOT/.venv" 2>/dev/null || true
   echo "  ✓ Symlinked .venv → $VENV_DIR"
-elif [ -L "$PROJECT_ROOT/.venv" ]; then
-  echo "  ✓ .venv symlink already exists"
-else
-  echo "  ⚠ .venv directory exists (not a symlink), skipping"
 fi
 
 # ─── Node.js Environment ─────────────────────────────────────────────────
@@ -40,30 +46,26 @@ if [ -f "$WEBUI_DIR/package.json" ]; then
   echo "→ Setting up Node modules at $NODE_DIR ..."
   mkdir -p "$NODE_DIR"
 
-  # Install into /tmp, then symlink
-  cd "$WEBUI_DIR"
-  npm install --cache /tmp/npm-cache --prefix "$NODE_DIR" --quiet 2>/dev/null || \
-    npm install --cache /tmp/npm-cache --prefix "$NODE_DIR"
+  # Copy package manifests into /tmp so npm install runs there (bypasses EPERM)
+  cp "$WEBUI_DIR/package.json" "$NODE_DIR/package.json"
+  [ -f "$WEBUI_DIR/package-lock.json" ] && cp "$WEBUI_DIR/package-lock.json" "$NODE_DIR/package-lock.json" || true
 
-  # Symlink node_modules back into project
-  if [ ! -L "$WEBUI_DIR/node_modules" ] && [ ! -d "$WEBUI_DIR/node_modules" ]; then
-    ln -sf "$NODE_DIR/node_modules" "$WEBUI_DIR/node_modules" 2>/dev/null || true
-    echo "  ✓ Symlinked node_modules"
-  elif [ -L "$WEBUI_DIR/node_modules" ]; then
-    echo "  ✓ node_modules symlink already exists"
-  else
-    echo "  ⚠ node_modules directory exists, skipping"
-  fi
+  # Run npm install inside /tmp
+  cd "$NODE_DIR"
+  npm install --cache /tmp/npm-cache --quiet
   cd "$PROJECT_ROOT"
-else
-  echo ""
-  echo "→ Skipping Node setup (web-ui-v2/package.json not found yet)"
+
+  # Attempt to symlink node_modules back into the project.
+  # This may fail on macOS due to directory-level EPERM restrictions — that's OK,
+  # because `make dev-ui` references the /tmp vite binary directly.
+  if [ ! -L "$WEBUI_DIR/node_modules" ] && [ ! -d "$WEBUI_DIR/node_modules" ]; then
+    ln -sf "$NODE_DIR/node_modules" "$WEBUI_DIR/node_modules" 2>/dev/null && \
+      echo "  ✓ Symlinked node_modules → $NODE_DIR/node_modules" || \
+      echo "  ⚠ Could not symlink node_modules (EPERM) — using /tmp vite binary directly"
+  else
+    echo "  ✓ node_modules already present"
+  fi
 fi
 
 echo ""
 echo "=== ✅ Setup Complete ==="
-echo ""
-echo "Quick start:"
-echo "  make dev-api    # Start FastAPI backend on :8000"
-echo "  make dev-ui     # Start Vite frontend on :5173"
-echo "  make test       # Run all tests"
