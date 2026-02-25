@@ -13,7 +13,7 @@ export function useStockData(ticker: string | null) {
         setLoading(true)
         setError(null)
 
-        fetch(`/api/stock/${ticker}?period=6mo`)
+        fetch(`/api/stock/${ticker}?period=10d`)
             .then((res) => res.json())
             .then((json: StockData) => {
                 if (cancelled) return

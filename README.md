@@ -41,20 +41,70 @@ A Python-based stock analysis tool leveraging LangGraph, Gemini, and yfinance to
 
 ## Architecture & Flow
 
-### Autonomous Flow
-The agent now uses a **cyclic** flow where the LLM drives the conversation and tool usage.
+### Comprehensive Architecture Flow
+The application uses a modern client-server architecture with a React frontend streaming data from a FastAPI backend, heavily heavily relying on LangGraph for multi-agent reasoning.
 
 ```mermaid
 graph TD
-    Start([User Input]) --> AgentNode[Agent Node]
+    subgraph Frontend [React Frontend web-ui-v2]
+        UI[Chat UI]
+        HookChat[useChat.ts]
+        HookStock[useStockData.ts]
+        Chart[Stock Charts & Stats]
+        
+        UI -->|Sends Message| HookChat
+        HookChat -->|Extracts Ticker & Triggers| HookStock
+        HookStock -->|Feeds Data| Chart
+    end
+
+    subgraph Backend [FastAPI Backend]
+        API_Chat(POST /api/chat/stream)
+        API_Stock(GET /api/stock/{ticker})
+        YF[yfinance library]
+        
+        HookChat <-->|SSE Stream| API_Chat
+        HookStock -->|HTTP GET| API_Stock
+        API_Stock --> YF
+    end
+
+    subgraph LangGraph [Multi-Agent LangGraph]
+        direction TB
+        Supervisor{Supervisor}
+        Tech[Technical Analyst]
+        Fund[Fundamental Analyst]
+        Sent[Sentiment Analyst]
+        Val[Valuation Analyst]
+        Quant[Quant Analyst]
+        
+        Supervisor -->|Routes| Tech
+        Supervisor -->|Routes| Fund
+        Supervisor -->|Routes| Sent
+        Supervisor -->|Routes| Val
+        Supervisor -->|Routes| Quant
+        
+        Tech --> Supervisor
+        Fund --> Supervisor
+        Sent --> Supervisor
+        Val --> Supervisor
+        Quant --> Supervisor
+    end
+
+    API_Chat -->|Invokes| Supervisor
+    Supervisor -->|FINISH| API_Chat
     
-    AgentNode -->|Decides to use Tool| ToolNode[Tool Node: fetch_stock_price]
-    AgentNode -->|Final Answer| End([End Response])
+    %% Styling
+    classDef default fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC
+    classDef highlight fill:#3B82F6,stroke:#2563EB,stroke-width:2px,color:#fff
+    classDef agent fill:#047857,stroke:#059669,stroke-width:2px,color:#fff
     
-    ToolNode -->|Raw Data| AgentNode
+    UI,Chart class:highlight
+    Tech,Fund,Sent,Val,Quant class:agent
 ```
 
 ### Components
+*   **React Hooks:** `useChat.ts` establishes a Server-Sent Events (SSE) connection. Contextual Regex extracts the target ticker. `useStockData.ts` fetches background analytics independently.
+*   **Supervisor Node:** The "brain" orchestrator receives the streaming prompt. Uses an LLM to route tasks between semantic specialists.
+*   **Agent Nodes:** Receive queries, execute tools silently, and loop back to the Supervisor until the query is fully answered.
 *   **Agent Node:** Receives user input or tool output. Uses `gemini-2.5-flash` to decide the next step (reply or call tool).
 *   **Tool Node:** Executes the requested tool (e.g., `fetch_stock_price`) and returns a structured `ToolMessage`.
 *   **Conditional Edge:** Inspects the LLM's response for `tool_calls`. If present, routes to the Tool Node; otherwise, ends the turn.
