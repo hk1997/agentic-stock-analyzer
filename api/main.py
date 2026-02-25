@@ -5,6 +5,8 @@ Serves the LangGraph agent via SSE streaming and provides stock data endpoints.
 import json
 import os
 import sys
+import time
+import asyncio
 import traceback
 from typing import AsyncGenerator
 
@@ -166,21 +168,41 @@ async def chat_sync(request: ChatRequest):
     return {"reply": final_response, "thread_id": request.thread_id}
 
 
+STOCK_CACHE = {}
+CACHE_TTL = 300
+
 @app.get("/api/stock/{ticker}")
-async def get_stock_data(ticker: str, period: str = Query("6mo", pattern="^(1d|5d|1mo|3mo|6mo|1y|2y|5y|max)$")):
+async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5d|10d|1mo|3mo|6mo|1y|2y|5y|max)$")):
     """
     Fetch stock price data from yfinance for the chart and stats cards.
     Returns price history and key metrics.
     """
+    cache_key = f"{ticker.upper()}_{period}"
+    cached_ts, cached_data = STOCK_CACHE.get(cache_key, (0, None))
+    if time.time() - cached_ts < CACHE_TTL and cached_data is not None:
+        return cached_data
+
     try:
         import yfinance as yf
 
-        stock = yf.Ticker(ticker.upper())
-        info = stock.info or {}
-        hist = stock.history(period=period)
+        yf_period = "1mo" if period == "10d" else period
+
+        def fetch_info():
+            return yf.Ticker(ticker.upper()).info or {}
+
+        def fetch_history():
+            return yf.Ticker(ticker.upper()).history(period=yf_period)
+
+        info, hist = await asyncio.gather(
+            asyncio.to_thread(fetch_info),
+            asyncio.to_thread(fetch_history)
+        )
 
         if hist.empty:
             return {"error": f"No data found for ticker '{ticker}'"}
+            
+        if period == "10d" and len(hist) > 10:
+            hist = hist.tail(10)
 
         # Price history for charts
         price_data = []
@@ -200,7 +222,7 @@ async def get_stock_data(ticker: str, period: str = Query("6mo", pattern="^(1d|5
         change = round(current_price - prev_close, 2)
         change_pct = round((change / prev_close) * 100, 2) if prev_close else 0
 
-        return {
+        result = {
             "ticker": ticker.upper(),
             "name": info.get("shortName", ticker.upper()),
             "price": current_price,
@@ -215,6 +237,9 @@ async def get_stock_data(ticker: str, period: str = Query("6mo", pattern="^(1d|5
             "industry": info.get("industry"),
             "history": price_data,
         }
+        
+        STOCK_CACHE[cache_key] = (time.time(), result)
+        return result
 
     except Exception as exc:
         return {"error": str(exc), "ticker": ticker}

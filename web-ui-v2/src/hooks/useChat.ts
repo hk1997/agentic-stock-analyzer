@@ -20,7 +20,7 @@ export function useChat() {
             content: text,
             timestamp: new Date(),
         }
-        setMessages((prev) => [...prev, userMsg])
+        setMessages((prev: ChatMessage[]) => [...prev, userMsg])
         setIsStreaming(true)
 
         // Detect ticker from message (simple heuristic)
@@ -74,7 +74,7 @@ export function useChat() {
                             if (parsed.node && !parsed.content) {
                                 // agent_start
                                 const payload = parsed as AgentStartPayload
-                                setMessages((prev) => [
+                                setMessages((prev: ChatMessage[]) => [
                                     ...prev,
                                     {
                                         id: nextId(),
@@ -87,17 +87,29 @@ export function useChat() {
                             } else if (parsed.content) {
                                 // agent_output
                                 const payload = parsed as AgentOutputPayload
+
+                                // Ensure content is a string. If it's an object (like AIMessage {type, text}), stringify it or extract the text.
+                                let contentString = typeof payload.content === 'string' ? payload.content : ''
+
+                                if (typeof payload.content === 'object' && payload.content !== null) {
+                                    if ('text' in payload.content && typeof (payload.content as any).text === 'string') {
+                                        contentString = (payload.content as any).text
+                                    } else {
+                                        contentString = JSON.stringify(payload.content)
+                                    }
+                                }
+
                                 // Remove the step message for this agent, add the actual output
-                                setMessages((prev) => {
+                                setMessages((prev: ChatMessage[]) => {
                                     const filtered = prev.filter(
-                                        (m) => !(m.role === 'step' && m.agentName === payload.node)
+                                        (m: ChatMessage) => !(m.role === 'step' && m.agentName === payload.node)
                                     )
                                     return [
                                         ...filtered,
                                         {
                                             id: nextId(),
                                             role: 'agent',
-                                            content: payload.content,
+                                            content: contentString,
                                             agentName: payload.node,
                                             timestamp: new Date(),
                                         },
@@ -106,7 +118,7 @@ export function useChat() {
                             } else if (parsed.message) {
                                 // error
                                 const payload = parsed as ErrorPayload
-                                setMessages((prev) => [
+                                setMessages((prev: ChatMessage[]) => [
                                     ...prev,
                                     {
                                         id: nextId(),
@@ -125,7 +137,7 @@ export function useChat() {
             }
         } catch (err) {
             if ((err as Error).name !== 'AbortError') {
-                setMessages((prev) => [
+                setMessages((prev: ChatMessage[]) => [
                     ...prev,
                     {
                         id: nextId(),
