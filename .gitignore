@@ -136,9 +136,11 @@ celerybeat.pid
 
 # Environments
 .env
+local.env
 .envrc
 .venv
 env/
+checkpoints.sqlite
 venv/
 ENV/
 env.bak/

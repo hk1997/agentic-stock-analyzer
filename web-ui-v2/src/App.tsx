@@ -1,3 +1,4 @@
+import React, { useState } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { StockChart } from './components/chart/StockChart'
@@ -7,23 +8,24 @@ import { useChat } from './hooks/useChat'
 import { useStockData } from './hooks/useStockData'
 
 function App() {
-    const { messages, isStreaming, detectedTicker, sendMessage } = useChat()
-    const { data: stockData, loading: stockLoading } = useStockData(detectedTicker)
+    const { messages, isStreaming, sendMessage } = useChat()
+    const [activeTicker, setActiveTicker] = useState('AAPL')
+    const { data: stockData, loading: stockLoading } = useStockData(activeTicker)
 
     return (
         <>
             <Sidebar />
             <main className="main-content">
-                <Header ticker={detectedTicker || undefined} />
+                <Header ticker={activeTicker} setActiveTicker={setActiveTicker} />
 
                 <div className="dashboard">
                     <StockChart
-                        ticker={stockData?.ticker || detectedTicker || 'AAPL'}
+                        ticker={stockData?.ticker || activeTicker}
                         price={stockData?.price || 0}
                         change={stockData?.change || 0}
                         changePct={stockData?.changePct || 0}
                         history={stockData?.history || []}
-                        loading={stockLoading || (!stockData && !!detectedTicker)}
+                        loading={stockLoading || !stockData}
                     />
 
                     <StatsRow
@@ -31,7 +33,7 @@ function App() {
                         marketCap={stockData?.marketCap}
                         fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
                         fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
-                        loading={stockLoading || (!stockData && !!detectedTicker)}
+                        loading={stockLoading || !stockData}
                     />
 
                     <ChatPanel

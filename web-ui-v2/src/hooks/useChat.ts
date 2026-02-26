@@ -24,12 +24,6 @@ export function useChat() {
         setMessages((prev: ChatMessage[]) => [...prev, userMsg])
         setIsStreaming(true)
 
-        // Detect ticker from message (simple heuristic)
-        const tickerMatch = text.match(/\b([A-Z]{1,5})\b/)
-        if (tickerMatch) {
-            setDetectedTicker(tickerMatch[1])
-        }
-
         // Generate or retrieve a unqiue thread ID for this browser session
         let threadId = sessionStorage.getItem('finance_chat_thread_id')
         if (!threadId) {
@@ -192,5 +186,5 @@ export function useChat() {
         abortRef.current?.abort()
     }, [])
 
-    return { messages, isStreaming, detectedTicker, sendMessage, cancel }
+    return { messages, isStreaming, sendMessage, cancel }
 }
