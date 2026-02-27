@@ -12,7 +12,7 @@ services:
       - ./api:/app/api
       - ./main.py:/app/main.py
     env_file:
-      - local.env
+      - secrets.env
     environment:
       - PORT=8000
       - HOST=0.0.0.0

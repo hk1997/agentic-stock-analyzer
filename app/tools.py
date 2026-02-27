@@ -3,6 +3,7 @@ import pandas as pd
 from langchain_core.tools import tool
 from functools import lru_cache
 from datetime import datetime, timedelta
+from .sec_tools import get_latest_10k, get_latest_10q
 
 @lru_cache(maxsize=10)
 def _get_stock_data(ticker: str, days: int = 100) -> pd.DataFrame:
@@ -219,11 +220,19 @@ def calculate_intrinsic_value(ticker: str):
         stock = yf.Ticker(ticker)
         info = stock.info
         
-        # 1. Get Free Cash Flow
-        fcf_str = get_free_cash_flow.invoke(ticker)
-        if "Error" in fcf_str: return fcf_str
-        fcf = float(fcf_str)
-        
+        # 1. Get Free Cash Flow (call the underlying function directly to avoid langchain invoke nested errors)
+        try:
+            # We call the python function directly here. If it fails, we fall back to operatingCashflow
+            fcf_str = get_free_cash_flow.invoke({"ticker": ticker})
+            if "Error" in fcf_str:
+                fcf = info.get("operatingCashflow", 0) - info.get("capitalExpenditures", 0) # Fallback
+                if fcf == 0: return f"Error: No cash flow data for {ticker}"
+            else:
+                fcf = float(fcf_str)
+        except Exception:
+            fcf = info.get("operatingCashflow", 0) - info.get("capitalExpenditures", 0)
+            if fcf == 0: return f"Error: Could not determine FCF for {ticker}"
+            
         # 2. Get Beta and calculate Discount Rate (CAPM)
         beta = info.get("beta", 1.0)
         risk_free_rate = 0.042  # 4.2% approximation for 10Y Treasury
@@ -231,16 +240,16 @@ def calculate_intrinsic_value(ticker: str):
         discount_rate = risk_free_rate + (beta * equity_risk_premium)
         
         # 3. Get Growth Rate
-        # Try revenueGrowth, earningsGrowth, or pegRatio implied growth
-        growth_est = info.get("revenueGrowth", 0.05)
+        # Try revenueGrowth, earningsGrowth. Default to 5% safe growth.
+        growth_est = info.get("revenueGrowth", info.get("earningsGrowth", 0.05))
         if growth_est is None: growth_est = 0.05
         
         # Cap growth at 15% to be conservative
         growth_rate = min(growth_est, 0.15)
-        if growth_rate < 0: growth_rate = 0.02 # Assume minimal growth if negative
+        if growth_rate <= 0: growth_rate = 0.02 # Assume minimal growth if negative/zero
         
         terminal_growth = 0.03
-        shares_outstanding = info.get("sharesOutstanding")
+        shares_outstanding = info.get("sharesOutstanding", info.get("impliedSharesOutstanding"))
         if not shares_outstanding: return f"Error: No shares data for {ticker}"
         
         # 4. DCF Calculation
@@ -251,37 +260,96 @@ def calculate_intrinsic_value(ticker: str):
             future_cash_flows.append(discounted_fcf)
             
         # Terminal Value
-        terminal_value = (fcf * ((1 + growth_rate) ** 5) * (1 + terminal_growth)) / (discount_rate - terminal_growth)
+        terminal_value = (future_cash_flows[-1] * (1 + terminal_growth)) / (discount_rate - terminal_growth)
         discounted_tv = terminal_value / ((1 + discount_rate) ** 5)
         
         total_enterprise_value = sum(future_cash_flows) + discounted_tv
         
-        # Equity Value (simplified, assuming Net Debt ~ 0 for rough estimate or user can refine)
-        # Ideally: Equity Value = Enterprise Value + Cash - Debt
-        # For simplicity in this tool, we'll treat TEV as Equity Value or just approximate
-        # Let's try to get net debt if possible
         total_cash = info.get("totalCash", 0)
         total_debt = info.get("totalDebt", 0)
         equity_value = total_enterprise_value + total_cash - total_debt
         
-        fair_value_per_share = equity_value / shares_outstanding
-        current_price = info.get("currentPrice")
+        if equity_value < 0: return f"Error: Calculated equity value is negative for {ticker}. DCF is highly volatile for heavily indebted companies."
         
-        margin_of_safety = (1 - (current_price / fair_value_per_share)) * 100
+        fair_value_per_share = equity_value / shares_outstanding
+        current_price = info.get("currentPrice", info.get("regularMarketPrice"))
+        if not current_price: return "Error: Could not retrieve current price."
+        
+        margin_of_safety = ((fair_value_per_share - current_price) / fair_value_per_share) * 100
         
         return (f"--- DCF Valuation for {ticker} ---\n"
                 f"Current Price: ${current_price:.2f}\n"
                 f"Estimated Fair Value: ${fair_value_per_share:.2f}\n"
-                f"Margin of Safety: {margin_of_safety:.2f}%\n\n"
+                f"Margin of Safety: {margin_of_safety:.2f}% (Positive is undervalued)\n\n"
                 f"Assumptions Used:\n"
-                f"- Recent FCF: ${fcf:,.0f}\n"
-                f"- Growth Rate (Capped): {growth_rate*100:.2f}% (Analyst Est: {growth_est*100 if growth_est else 'N/A'}%)\n"
+                f"- Base FCF: ${fcf:,.0f}\n"
+                f"- Terminal Growth: {terminal_growth*100:.1f}%\n"
+                f"- Extrapolated Growth Rate (Capped): {growth_rate*100:.2f}%\n"
                 f"- Discount Rate (CAPM): {discount_rate*100:.2f}% (Beta: {beta})\n"
-                f"- Terminal Growth: {terminal_growth*100:.1f}%")
+                f"- Net Debt: ${(total_debt - total_cash):,.0f}")
         
     except Exception as e:
         return f"Error calculating DCF for {ticker}: {e}"
 
+@tool
+def calculate_ddm(ticker: str):
+    """Calculates the Intrinsic Value of a basic dividend-paying company using the Dividend Discount Model (Gordon Growth Model).
+    Only use this for mature, consistent dividend-paying companies (e.g. Utilities, Banks, Consumer Staples).
+    """
+    print(f"\n   [System] Tool triggered: Calculating DDM Valuation for {ticker}...")
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # 1. Check for dividend
+        dividend_yield = info.get("dividendYield", 0)
+        dividend_rate = info.get("dividendRate", 0)
+        
+        if not dividend_yield or not dividend_rate or dividend_rate <= 0:
+            return f"{ticker} does not appear to pay a significant, stable dividend. DDM is not applicable."
+            
+        current_price = info.get("currentPrice", info.get("regularMarketPrice"))
+        if not current_price: return "Error: Could not retrieve current price."
+
+        # 2. Get Beta and calculate Cost of Equity (CAPM)
+        beta = info.get("beta", 1.0)
+        risk_free_rate = 0.042  # 4.2% approximation for 10Y Treasury
+        equity_risk_premium = 0.05 # 5%
+        cost_of_equity = risk_free_rate + (beta * equity_risk_premium)
+        
+        # 3. Estimate Dividend Growth Rate (g = ROE * Retention Ratio)
+        roe = info.get("returnOnEquity", 0.10)
+        if roe is None: roe = 0.10
+        payout_ratio = info.get("payoutRatio", 0.50)
+        if payout_ratio is None: payout_ratio = 0.50
+        
+        retention_ratio = 1 - payout_ratio
+        fundamental_growth_rate = roe * retention_ratio
+        
+        # Cap growth arbitrarily below cost of equity to maintain GGM math validity
+        growth_rate = min(fundamental_growth_rate, cost_of_equity - 0.01)
+        if growth_rate < 0: growth_rate = 0.02
+        
+        # 4. Gordon Growth Model Formula: V = D1 / (k - g)
+        # where D1 = Current Dividend * (1 + g)
+        expected_dividend = dividend_rate * (1 + growth_rate)
+        
+        fair_value_per_share = expected_dividend / (cost_of_equity - growth_rate)
+        
+        margin_of_safety = ((fair_value_per_share - current_price) / fair_value_per_share) * 100
+        
+        return (f"--- DDM Valuation for {ticker} ---\n"
+                f"Current Price: ${current_price:.2f}\n"
+                f"Estimated Fair Value: ${fair_value_per_share:.2f}\n"
+                f"Margin of Safety: {margin_of_safety:.2f}% (Positive is undervalued)\n\n"
+                f"Assumptions Used:\n"
+                f"- Current Annual Dividend: ${dividend_rate:.2f}\n"
+                f"- Expected Div. Growth Rate (ROE * Retention): {growth_rate*100:.2f}%\n"
+                f"- Cost of Equity (CAPM): {cost_of_equity*100:.2f}% (Beta: {beta})\n"
+                f"- Payout Ratio: {payout_ratio*100:.1f}%")
+        
+    except Exception as e:
+        return f"Error calculating DDM for {ticker}: {e}"
 # Export all tools
 @tool
 def get_risk_metrics(ticker: str):
@@ -417,7 +485,6 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
         
     except Exception as e:
         return f"Error backtesting {strategy}: {e}"
-
 # Export all tools
 tools = [
     fetch_stock_price, 
@@ -429,6 +496,9 @@ tools = [
     get_company_info,
     get_free_cash_flow,
     calculate_intrinsic_value,
+    calculate_ddm,
     get_risk_metrics,
-    backtest_strategy
+    backtest_strategy,
+    get_latest_10k,
+    get_latest_10q
 ]
