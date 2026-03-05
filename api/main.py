@@ -351,6 +351,43 @@ async def get_stock_indicators(ticker: str, period: str = Query("1y", pattern="^
     except Exception as exc:
         return {"error": str(exc), "ticker": ticker}
 
+class BacktestRequestAPI(BaseModel):
+    ticker: str
+    strategy: str = "sma_crossover"
+    initial_capital: float = 10000.0
+    days: int = 365
+
+@app.post("/api/backtest")
+async def run_backtest(request: BacktestRequestAPI):
+    """
+    Runs a strategy backtest and returns JSON results.
+    """
+    try:
+        from app.tools import backtest_strategy
+        import concurrent.futures
+        import json
+
+        def _run():
+            return backtest_strategy.invoke({
+                "ticker": request.ticker,
+                "strategy": request.strategy,
+                "initial_capital": request.initial_capital,
+                "days": request.days
+            })
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="bt_worker") as executor:
+            loop = asyncio.get_running_loop()
+            result_str = await loop.run_in_executor(executor, _run)
+            
+        if isinstance(result_str, str):
+            try:
+                return json.loads(result_str)
+            except json.JSONDecodeError:
+                return {"error": result_str}
+        return result_str
+        
+    except Exception as exc:
+        return {"error": str(exc)}
 
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":

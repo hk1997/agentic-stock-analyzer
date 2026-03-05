@@ -395,31 +395,29 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
     
     Args:
         ticker: Stock symbol
-        strategy: 'sma_crossover' (Golden Cross) or 'rsi_mean_reversion' (Buy<30, Sell>70)
-        initial_capital: Starting money (default 10,000)
+        strategy: 'sma_crossover' (Golden Cross), 'rsi_mean_reversion' (Buy<30, Sell>70), 'macd_crossover', or 'bollinger_reversion'.
+        initial_capital: Starting money (default 10000.0)
         days: Period to test (default 365)
     """
     print(f"\n   [System] Tool triggered: Backtesting '{strategy}' on {ticker}...")
+    import json
     try:
         # Fetch data (need extra for SMA calculations)
         lookback = 400 if strategy == "sma_crossover" else days + 50
         hist = _get_stock_data(ticker, days=lookback)
         
         if len(hist) < 200 and strategy == "sma_crossover":
-            return "Error: Not enough data for SMA Crossover (needs 200 days)."
+            return json.dumps({"error": "Not enough data for SMA Crossover (needs 200 days)."})
             
-        # Only keep the days we want to test? No, we need previous data for indicators.
-        # We will simulate over the last 'days'
-        
         capital = initial_capital
-        position = 0 # 0 or shares
+        position = 0 # 0 or shares holding
+        trades = []
         
         # Calculate Indicators
         if strategy == "sma_crossover":
             hist['SMA50'] = hist['Close'].rolling(window=50).mean()
             hist['SMA200'] = hist['Close'].rolling(window=200).mean()
             hist['Signal'] = 0
-            # 1 = Buy Signal (50 > 200), -1 = Sell Signal
             hist.loc[hist['SMA50'] > hist['SMA200'], 'Signal'] = 1
             
         elif strategy == "rsi_mean_reversion":
@@ -430,36 +428,56 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
             avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
             rs = avg_gain / avg_loss
             hist['RSI'] = 100 - (100 / (1 + rs))
+            
+        elif strategy == "macd_crossover":
+            exp1 = hist['Close'].ewm(span=12, adjust=False).mean()
+            exp2 = hist['Close'].ewm(span=26, adjust=False).mean()
+            macd = exp1 - exp2
+            signal = macd.ewm(span=9, adjust=False).mean()
+            hist['MACD_Signal'] = 0
+            hist.loc[macd > signal, 'MACD_Signal'] = 1
+            
+        elif strategy == "bollinger_reversion":
+            sma20 = hist['Close'].rolling(window=20).mean()
+            std20 = hist['Close'].rolling(window=20).std(ddof=0)
+            hist['UpperBand'] = sma20 + (std20 * 2)
+            hist['LowerBand'] = sma20 - (std20 * 2)
         
-        # Simulation Loop (simplified vectorization or loop)
-        # We start trading from index -days
+        # Simulation Loop
         start_index = len(hist) - days
         if start_index < 0: start_index = 0
         
         test_data = hist.iloc[start_index:].copy()
         
-        for i in range(len(test_data) - 1): # Stop before last day to avoid lookahead? 
-            # Actually we act on today's close or tomorrow's open. Let's assume trade at Close.
+        for i in range(len(test_data) - 1): 
             today = test_data.iloc[i]
             price = today['Close']
-            date = test_data.index[i]
+            date_str = test_data.index[i].strftime("%Y-%m-%d")
             
             action = "HOLD"
             
             if strategy == "sma_crossover":
-                # Buy if Golden Cross (Signal 1) and no position
                 if today['Signal'] == 1 and position == 0:
                     action = "BUY"
-                # Sell if Death Cross (Signal 0/ -1) and have position
                 elif today['Signal'] == 0 and position > 0:
                     action = "SELL"
                     
             elif strategy == "rsi_mean_reversion":
-                # Buy Dip
                 if today['RSI'] < 30 and position == 0:
                     action = "BUY"
-                # Sell Rip
                 elif today['RSI'] > 70 and position > 0:
+                    action = "SELL"
+                    
+            elif strategy == "macd_crossover":
+                if today['MACD_Signal'] == 1 and position == 0:
+                    action = "BUY"
+                elif today['MACD_Signal'] == 0 and position > 0:
+                    action = "SELL"
+                    
+            elif strategy == "bollinger_reversion":
+                if today['Close'] <= today['LowerBand'] and position == 0:
+                    action = "BUY"
+                elif today['Close'] >= today['UpperBand'] and position > 0:
                     action = "SELL"
             
             # Execute
@@ -468,8 +486,10 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
                 if shares_to_buy > 0:
                     capital -= shares_to_buy * price
                     position += shares_to_buy
+                    trades.append({"date": date_str, "type": "BUY", "price": round(price, 2), "shares": int(shares_to_buy)})
             elif action == "SELL":
                 capital += position * price
+                trades.append({"date": date_str, "type": "SELL", "price": round(price, 2), "shares": int(position)})
                 position = 0
                 
         # Final Value
@@ -481,15 +501,37 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
         start_price = test_data.iloc[0]['Close']
         buy_hold_return = ((final_price - start_price) / start_price) * 100
         
-        return (f"--- Backtest Results ({strategy}) for {ticker} ---\n"
-                f"Period: Last {days} days\n"
-                f"Initial Capital: ${initial_capital:,.2f}\n"
-                f"Final Value: ${final_value:,.2f}\n"
-                f"Total Return: {total_return:.2f}% (vs Buy & Hold: {buy_hold_return:.2f}%)\n"
-                f"Final Position: {position} shares")
+        wins = 0
+        total_closed_trades = 0
+        entry_price = 0
+        for t in trades:
+            if t['type'] == 'BUY':
+                entry_price = t['price']
+            elif t['type'] == 'SELL' and entry_price > 0:
+                total_closed_trades += 1
+                if t['price'] > entry_price:
+                    wins += 1
+                entry_price = 0
+                
+        win_rate = (wins / total_closed_trades * 100) if total_closed_trades > 0 else 0
+        
+        return json.dumps({
+            "strategy": strategy,
+            "ticker": ticker.upper(),
+            "period_days": days,
+            "initial_capital": initial_capital,
+            "final_value": round(final_value, 2),
+            "total_return_pct": round(total_return, 2),
+            "benchmark_return_pct": round(buy_hold_return, 2),
+            "win_rate_pct": round(win_rate, 2),
+            "total_trades": len(trades),
+            "final_position_shares": position,
+            "trades": trades
+        })
         
     except Exception as e:
-        return f"Error backtesting {strategy}: {e}"
+        import json
+        return json.dumps({"error": f"Error backtesting {strategy}: {e}"})
 # Export all tools
 tools = [
     fetch_stock_price, 

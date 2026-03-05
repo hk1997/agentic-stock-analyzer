@@ -4,9 +4,11 @@ import { Header } from './components/layout/Header'
 import { StockChart } from './components/chart/StockChart'
 import { StatsRow } from './components/stats/StatCard'
 import { ChatPanel } from './components/chat/ChatPanel'
+import { StrategyBuilder } from './components/StrategyBuilder'
 import { useChat } from './hooks/useChat'
 import { useStockData } from './hooks/useStockData'
 import { useIndicators } from './hooks/useIndicators'
+import type { BacktestResult } from './hooks/useBacktest'
 
 function App() {
     const { messages, isStreaming, sendMessage } = useChat()
@@ -14,6 +16,7 @@ function App() {
     const [period, setPeriod] = useState('1mo')
     const { data: stockData, loading: stockLoading } = useStockData(activeTicker, period)
     const { indicators, loading: indLoading } = useIndicators(activeTicker, period)
+    const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
 
     return (
         <>
@@ -29,24 +32,33 @@ function App() {
                         changePct={stockData?.changePct || 0}
                         history={stockData?.history || []}
                         indicators={indicators}
+                        backtestResult={backtestResult}
                         loading={stockLoading || !stockData || indLoading}
                         period={period}
                         onPeriodChange={setPeriod}
                     />
 
-                    <StatsRow
-                        peRatio={stockData?.peRatio}
-                        marketCap={stockData?.marketCap}
-                        fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
-                        fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
-                        loading={stockLoading || !stockData}
-                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 350px) 1fr', gap: '20px', width: '100%', alignItems: 'start' }}>
+                        <StrategyBuilder
+                            ticker={stockData?.ticker || activeTicker}
+                            onResult={setBacktestResult}
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <StatsRow
+                                peRatio={stockData?.peRatio}
+                                marketCap={stockData?.marketCap}
+                                fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
+                                fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
+                                loading={stockLoading || !stockData}
+                            />
 
-                    <ChatPanel
-                        messages={messages}
-                        isStreaming={isStreaming}
-                        onSend={sendMessage}
-                    />
+                            <ChatPanel
+                                messages={messages}
+                                isStreaming={isStreaming}
+                                onSend={sendMessage}
+                            />
+                        </div>
+                    </div>
                 </div>
             </main>
         </>

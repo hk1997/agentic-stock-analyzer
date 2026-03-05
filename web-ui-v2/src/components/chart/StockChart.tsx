@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData, SeriesMarker } from 'lightweight-charts';
 import type { PricePoint } from '../../types/api';
 import type { IndicatorPoint } from '../../hooks/useIndicators';
+import type { BacktestResult } from '../../hooks/useBacktest';
 import { TrendingUp, TrendingDown, Settings2 } from 'lucide-react';
 
 interface StockChartProps {
@@ -11,6 +12,7 @@ interface StockChartProps {
     changePct: number;
     history: PricePoint[];
     indicators?: IndicatorPoint[];
+    backtestResult?: BacktestResult | null;
     loading?: boolean;
     period: string;
     onPeriodChange: (period: string) => void;
@@ -27,7 +29,7 @@ const PERIODS = [
     { label: 'Max', value: 'max' },
 ];
 
-export function StockChart({ ticker, price, change, changePct, history, indicators = [], loading, period, onPeriodChange }: StockChartProps) {
+export function StockChart({ ticker, price, change, changePct, history, indicators = [], backtestResult, loading, period, onPeriodChange }: StockChartProps) {
     const isPositive = change >= 0;
     const priceChartContainerRef = useRef<HTMLDivElement>(null);
     const rsiChartContainerRef = useRef<HTMLDivElement>(null);
@@ -147,6 +149,24 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
             const data: LineData[] = sortedHistory.map(d => ({ time: d.time as any, value: d.close }));
             mainSeries.setData(data);
         }
+
+        // Add Trade Markers if Backtesting
+        if (backtestResult && backtestResult.trades.length > 0) {
+            // Lightweight charts will crash if a marker is placed on a date that is not in the series data
+            const validTimes = new Set(sortedHistory.map(d => d.time));
+
+            const markers: SeriesMarker<any>[] = backtestResult.trades
+                .filter(t => validTimes.has(t.date))
+                .map(t => ({
+                    time: t.date as any,
+                    position: t.type === 'BUY' ? 'belowBar' : 'aboveBar',
+                    color: t.type === 'BUY' ? '#00e676' : '#ff1744',
+                    shape: t.type === 'BUY' ? 'arrowUp' : 'arrowDown',
+                    text: t.type === 'BUY' ? 'Buy' : 'Sell',
+                }));
+            (mainSeries as any).setMarkers(markers);
+        }
+
         seriesRef.current['main'] = { chart: priceChart, handle: mainSeries };
 
         // INDICATOR OVERLAYS & PANES
@@ -213,7 +233,7 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
         priceChart.timeScale().fitContent();
 
-    }, [history, indicators, chartType, isPositive, activeIndicators, hasRSI, hasMACD]);
+    }, [history, indicators, backtestResult, chartType, isPositive, activeIndicators, hasRSI, hasMACD]);
 
     const availableIndicators = [
         { id: 'sma20', label: 'SMA 20' },
