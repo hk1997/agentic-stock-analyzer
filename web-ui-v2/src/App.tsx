@@ -10,7 +10,8 @@ import { useStockData } from './hooks/useStockData'
 function App() {
     const { messages, isStreaming, sendMessage } = useChat()
     const [activeTicker, setActiveTicker] = useState('AAPL')
-    const { data: stockData, loading: stockLoading } = useStockData(activeTicker)
+    const [period, setPeriod] = useState('1mo')
+    const { data: stockData, loading: stockLoading } = useStockData(activeTicker, period)
 
     return (
         <>
@@ -26,6 +27,8 @@ function App() {
                         changePct={stockData?.changePct || 0}
                         history={stockData?.history || []}
                         loading={stockLoading || !stockData}
+                        period={period}
+                        onPeriodChange={setPeriod}
                     />
 
                     <StatsRow

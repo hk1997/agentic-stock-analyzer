@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { StockData } from '../types/api'
 
-export function useStockData(ticker: string | null) {
+export function useStockData(ticker: string | null, period: string = '1mo') {
     const [data, setData] = useState<StockData | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -13,7 +13,7 @@ export function useStockData(ticker: string | null) {
         setLoading(true)
         setError(null)
 
-        fetch(`/api/stock/${ticker}?period=10d`)
+        fetch(`/api/stock/${ticker}?period=${period}`)
             .then((res) => res.json())
             .then((json: StockData) => {
                 if (cancelled) return
@@ -31,7 +31,7 @@ export function useStockData(ticker: string | null) {
             })
 
         return () => { cancelled = true }
-    }, [ticker])
+    }, [ticker, period])
 
     return { data, loading, error }
 }
