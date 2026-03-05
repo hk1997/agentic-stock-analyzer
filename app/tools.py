@@ -61,10 +61,13 @@ def calculate_rsi(ticker: str, window: int = 14):
         if hist.empty: return f"Error: No data for {ticker}"
         
         delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
         
-        rs = gain / loss
+        avg_gain = gain.ewm(alpha=1/window, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/window, adjust=False).mean()
+        
+        rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
         
         current_rsi = rsi.iloc[-1]
@@ -421,9 +424,11 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
             
         elif strategy == "rsi_mean_reversion":
             delta = hist['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+            rs = avg_gain / avg_loss
             hist['RSI'] = 100 - (100 / (1 + rs))
         
         # Simulation Loop (simplified vectorization or loop)

@@ -275,6 +275,82 @@ async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5
     except Exception as exc:
         return {"error": str(exc), "ticker": ticker}
 
+@app.get("/api/indicators/{ticker}")
+async def get_stock_indicators(ticker: str, period: str = Query("1y", pattern="^(1mo|3mo|6mo|1y|2y|5y|max)$")):
+    """
+    Calculates technical indicators for the frontend charts.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+        import concurrent.futures
+
+        def fetch_history():
+            return yf.Ticker(ticker.upper()).history(period=period)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5, thread_name_prefix="yf_ind_worker") as executor:
+            loop = asyncio.get_running_loop()
+            hist = await loop.run_in_executor(executor, fetch_history)
+
+        if hist.empty:
+            return {"error": f"No data found for ticker '{ticker}'"}
+
+        # Calculate indicators
+        close = hist["Close"]
+        
+        # SMAs
+        sma20 = close.rolling(window=20).mean()
+        sma50 = close.rolling(window=50).mean()
+        sma200 = close.rolling(window=200).mean()
+        
+        # EMAs
+        ema20 = close.ewm(span=20, adjust=False).mean()
+        
+        # Bollinger Bands (20-day, 2 std dev, population std dev ddof=0 to match industry standard)
+        std20 = close.rolling(window=20).std(ddof=0)
+        upper_band = sma20 + (std20 * 2)
+        lower_band = sma20 - (std20 * 2)
+        
+        # RSI (14-day) - Using Wilder's Smoothing Method
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        
+        # Wilder's Smoothing: EMA with alpha = 1 / window
+        avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # MACD (12, 26, 9)
+        exp1 = close.ewm(span=12, adjust=False).mean()
+        exp2 = close.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+        histogram = macd - signal
+
+        # Prepare payload
+        indicators_data = []
+        for date in hist.index:
+            indicators_data.append({
+                "time": date.strftime("%Y-%m-%d"),
+                "sma20": round(sma20.loc[date], 2) if not pd.isna(sma20.loc[date]) else None,
+                "sma50": round(sma50.loc[date], 2) if not pd.isna(sma50.loc[date]) else None,
+                "sma200": round(sma200.loc[date], 2) if not pd.isna(sma200.loc[date]) else None,
+                "ema20": round(ema20.loc[date], 2) if not pd.isna(ema20.loc[date]) else None,
+                "upper_band": round(upper_band.loc[date], 2) if not pd.isna(upper_band.loc[date]) else None,
+                "lower_band": round(lower_band.loc[date], 2) if not pd.isna(lower_band.loc[date]) else None,
+                "rsi": round(rsi.loc[date], 2) if not pd.isna(rsi.loc[date]) else None,
+                "macd": round(macd.loc[date], 2) if not pd.isna(macd.loc[date]) else None,
+                "macd_signal": round(signal.loc[date], 2) if not pd.isna(signal.loc[date]) else None,
+                "macd_hist": round(histogram.loc[date], 2) if not pd.isna(histogram.loc[date]) else None,
+            })
+
+        return {"ticker": ticker.upper(), "indicators": indicators_data}
+
+    except Exception as exc:
+        return {"error": str(exc), "ticker": ticker}
+
 
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":
