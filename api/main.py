@@ -23,7 +23,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+if os.path.exists(os.path.join(PROJECT_ROOT, "local.env")):
+    load_dotenv(os.path.join(PROJECT_ROOT, "local.env"))
+else:
+    load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 # ── App Setup ──────────────────────────────────────────────
 app = FastAPI(title="Agentic Stock Analyzer API", version="0.2.0")
