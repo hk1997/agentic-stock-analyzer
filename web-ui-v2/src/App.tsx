@@ -38,26 +38,25 @@ function App() {
                         onPeriodChange={setPeriod}
                     />
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 350px) 1fr', gap: '20px', width: '100%', alignItems: 'start' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', alignItems: 'stretch' }}>
+                        <StatsRow
+                            peRatio={stockData?.peRatio}
+                            marketCap={stockData?.marketCap}
+                            fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
+                            fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
+                            loading={stockLoading || !stockData}
+                        />
+
                         <StrategyBuilder
                             ticker={stockData?.ticker || activeTicker}
                             onResult={setBacktestResult}
                         />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <StatsRow
-                                peRatio={stockData?.peRatio}
-                                marketCap={stockData?.marketCap}
-                                fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
-                                fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
-                                loading={stockLoading || !stockData}
-                            />
 
-                            <ChatPanel
-                                messages={messages}
-                                isStreaming={isStreaming}
-                                onSend={sendMessage}
-                            />
-                        </div>
+                        <ChatPanel
+                            messages={messages}
+                            isStreaming={isStreaming}
+                            onSend={sendMessage}
+                        />
                     </div>
                 </div>
             </main>
