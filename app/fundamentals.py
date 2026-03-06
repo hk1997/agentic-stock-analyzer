@@ -3,12 +3,15 @@ import yfinance as yf
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
+import functools
+
 from .prompts import (
     BUSINESS_MODEL_STORY_PROMPT,
     PORTER_5_FORCES_PROMPT,
     COMPETITOR_COMPARISON_PROMPT
 )
 
+@functools.lru_cache(maxsize=32)
 def _get_background_context(ticker: str) -> dict:
     """Fetches high-level company profile data via yfinance."""
     try:

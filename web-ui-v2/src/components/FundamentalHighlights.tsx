@@ -14,40 +14,48 @@ export default function FundamentalHighlights({ ticker }: FundamentalHighlightsP
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        // Clear data when ticker changes and fetch current tab
+    // Reset state synchronously when ticker changes to avoid double-rendering useEffect loops
+    const [prevTicker, setPrevTicker] = useState(ticker);
+    if (ticker !== prevTicker) {
         setData({});
-        fetchData(activeTab, ticker);
-    }, [ticker]);
+        setActiveTab('story');
+        setPrevTicker(ticker);
+    }
 
     useEffect(() => {
-        // Fetch data when tab changes if we don't have it yet
-        if (!data[activeTab]) {
-            fetchData(activeTab, ticker);
-        }
-    }, [activeTab, ticker, data]);
+        let ignore = false;
 
-    const fetchData = async (tab: TabKey, currentTicker: string) => {
-        if (!currentTicker) return;
+        const fetchCurrentTab = async () => {
+            if (!ticker || data[activeTab]) return;
 
-        setLoading(true);
-        setError(null);
-        try {
-            const resp = await fetch(`http://localhost:8000/api/fundamentals/${currentTicker}/${tab}`);
-            const result = await resp.json();
+            setLoading(true);
+            setError(null);
+            try {
+                const resp = await fetch(`http://localhost:8000/api/fundamentals/${ticker}/${activeTab}`);
+                const result = await resp.json();
 
-            if (!resp.ok || result.error) {
-                throw new Error(result.error || `HTTP Error ${resp.status}`);
+                if (!ignore) {
+                    if (!resp.ok || result.error) {
+                        throw new Error(result.error || `HTTP Error ${resp.status}`);
+                    }
+                    setData(prev => ({ ...prev, [activeTab]: result.markdown }));
+                }
+            } catch (err: any) {
+                if (!ignore) {
+                    setError(err.message || 'Failed to fetch fundamental analysis');
+                    console.error('Fundamental API Error:', err);
+                }
+            } finally {
+                if (!ignore) {
+                    setLoading(false);
+                }
             }
+        };
 
-            setData(prev => ({ ...prev, [tab]: result.markdown }));
-        } catch (err: any) {
-            setError(err.message || 'Failed to fetch fundamental analysis');
-            console.error('Fundamental API Error:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
+        fetchCurrentTab();
+
+        return () => { ignore = true; };
+    }, [activeTab, ticker, data]);
 
     const tabs: { key: TabKey, label: string }[] = [
         { key: 'story', label: 'Business Model' },
