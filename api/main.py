@@ -8,10 +8,14 @@ import sys
 import time
 import asyncio
 import traceback
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from app.cache import get_cache, set_cache, cached_async, close_valkey_pool
+from app.tasks import update_active_tickers_prices, log_user_query, trigger_jit_fundamentals, _ingest_price_history
+
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,7 +33,15 @@ else:
     load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 # ── App Setup ──────────────────────────────────────────────
-app = FastAPI(title="Agentic Stock Analyzer API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Kick off lightweight background data refresh for recently active tickers
+    asyncio.create_task(update_active_tickers_prices())
+    yield
+    # Shutdown
+    await close_valkey_pool()
+
+app = FastAPI(title="Agentic Stock Analyzer API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -84,7 +96,7 @@ def health():
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, background_tasks: BackgroundTasks):
     """
     Stream LangGraph agent events via Server-Sent Events (SSE).
 
@@ -103,9 +115,23 @@ async def chat_stream(request: ChatRequest):
         config = {"configurable": {"thread_id": request.thread_id}}
 
         try:
-            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+            from psycopg_pool import AsyncConnectionPool
             
-            async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as checkpointer:
+            # Use the global DATABASE_URL from our env config
+            db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/stock_analyzer")
+            # langgraph-checkpoint-postgres requires psycopg connection string format
+            psycopg_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+            
+            async with AsyncConnectionPool(
+                conninfo=psycopg_url,
+                max_size=20,
+                kwargs={"autocommit": True}
+            ) as pool:
+                checkpointer = AsyncPostgresSaver(pool)
+                # First time setup, ensure tables exist
+                await checkpointer.setup()
+                
                 # Compile per-request with the async checkpointer
                 graph = agent_graph.compile(checkpointer=checkpointer)
 
@@ -171,7 +197,7 @@ async def chat_stream(request: ChatRequest):
 
 
 @app.post("/api/chat")
-async def chat_sync(request: ChatRequest):
+async def chat_sync(request: ChatRequest, background_tasks: BackgroundTasks):
     """Synchronous fallback: returns a single JSON response (for simple testing)."""
     if agent_graph is None:
         return {"reply": f"Error: {_graph_error}", "thread_id": request.thread_id}
@@ -195,18 +221,22 @@ async def chat_sync(request: ChatRequest):
     return {"reply": final_response, "thread_id": request.thread_id}
 
 
-STOCK_CACHE = {}
+# ── Caching ────────────────────────────────────────────────
+# Using Valkey via app.cache
 CACHE_TTL = 300
 
 @app.get("/api/stock/{ticker}")
-async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5d|10d|1mo|3mo|6mo|1y|2y|5y|max)$")):
+async def get_stock_data(ticker: str, background_tasks: BackgroundTasks, period: str = Query("10d", pattern="^(1d|5d|10d|1mo|3mo|6mo|1y|2y|5y|max)$")):
     """
     Fetch stock price data from yfinance for the chart and stats cards.
     Returns price history and key metrics.
     """
-    cache_key = f"{ticker.upper()}_{period}"
-    cached_ts, cached_data = STOCK_CACHE.get(cache_key, (0, None))
-    if time.time() - cached_ts < CACHE_TTL and cached_data is not None:
+    # Log user query asynchronously
+    background_tasks.add_task(log_user_query, ticker, "chart")
+    
+    cache_key = f"api:stock:{ticker.upper()}:{period}"
+    cached_data = await get_cache(cache_key)
+    if cached_data is not None:
         return cached_data
 
     try:
@@ -231,6 +261,11 @@ async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5
 
         if hist.empty:
             return {"error": f"No data found for ticker '{ticker}'"}
+            
+        # JIT: Trigger an async upsert into TimescaleDB so we have this historical data natively
+        # We don't await this directly in the main thread to avoid delaying the UI response,
+        # but we add it to the background tasks to ensure it happens.
+        background_tasks.add_task(_ingest_price_history, ticker)
             
         if period == "10d" and len(hist) > 10:
             hist = hist.tail(10)
@@ -269,17 +304,22 @@ async def get_stock_data(ticker: str, period: str = Query("10d", pattern="^(1d|5
             "history": price_data,
         }
         
-        STOCK_CACHE[cache_key] = (time.time(), result)
+        
+        await set_cache(cache_key, result, CACHE_TTL)
         return result
 
     except Exception as exc:
         return {"error": str(exc), "ticker": ticker}
 
 @app.get("/api/indicators/{ticker}")
-async def get_stock_indicators(ticker: str, period: str = Query("1y", pattern="^(1mo|3mo|6mo|1y|2y|5y|max)$")):
+@cached_async(ttl_seconds=300)
+async def get_stock_indicators(ticker: str, background_tasks: BackgroundTasks, period: str = Query("1y", pattern="^(1mo|3mo|6mo|1y|2y|5y|max)$")):
     """
     Calculates technical indicators for the frontend charts.
     """
+    # Log user query asynchronously
+    background_tasks.add_task(log_user_query, ticker, "indicators")
+    
     try:
         import yfinance as yf
         import pandas as pd
@@ -358,6 +398,7 @@ class BacktestRequestAPI(BaseModel):
     days: int = 365
 
 @app.post("/api/backtest")
+@cached_async(ttl_seconds=3600) # Longer TTL for backtesting results
 async def run_backtest(request: BacktestRequestAPI):
     """
     Runs a strategy backtest and returns JSON results.
@@ -386,6 +427,61 @@ async def run_backtest(request: BacktestRequestAPI):
                 return {"error": result_str}
         return result_str
         
+    except Exception as exc:
+        return {"error": str(exc)}
+
+# ── Fundamentals Narrative Endpoints ───────────────────────
+
+@app.get("/api/fundamentals/{ticker}/story")
+@cached_async(ttl_seconds=2592000) # 30 Days TTL
+async def get_fundamental_story(ticker: str, background_tasks: BackgroundTasks):
+    """Generates the Business Model Story via Gemini."""
+    
+    # Just-In-Time Generation fallback: While the user reads the story, trigger Porter/Competitor generation in bg.
+    background_tasks.add_task(trigger_jit_fundamentals, ticker)
+    background_tasks.add_task(log_user_query, ticker, "fundamentals")
+    
+    try:
+        from app.fundamentals import generate_business_story
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_business_story, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/fundamentals/{ticker}/porter")
+@cached_async(ttl_seconds=2592000) # 30 Days TTL
+async def get_fundamental_porter(ticker: str):
+    """Generates Porter's 5 Forces Analysis via Gemini."""
+    try:
+        from app.fundamentals import generate_porter_forces
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_porter_forces, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/fundamentals/{ticker}/competitors")
+@cached_async(ttl_seconds=2592000) # 30 Days TTL
+async def get_fundamental_competitors(ticker: str):
+    """Generates Top 3 Competitor Comparison via Gemini."""
+    try:
+        from app.fundamentals import generate_competitor_comparison
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_competitor_comparison, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
     except Exception as exc:
         return {"error": str(exc)}
 

@@ -27,28 +27,28 @@ class ModelNameLoggingHandler(BaseCallbackHandler):
     def on_llm_end(self, response: LLMResult, **kwargs):
         print(f"[Model] Finished")
 
-def create_llm(provider: str, model_name: str) -> BaseChatModel:
+def create_llm(provider: str, model_name: str, **kwargs) -> BaseChatModel:
     """Creates an LLM instance based on the provider."""
     print(f"Creating LLM: {provider}/{model_name}")
     provider = provider.lower()
     callbacks = [ModelNameLoggingHandler()]
     
     if provider == "google" or provider == "gemini":
-        return ChatGoogleGenerativeAI(model=model_name, callbacks=callbacks)
+        return ChatGoogleGenerativeAI(model=model_name, callbacks=callbacks, **kwargs)
     elif provider == "ollama":
-        return ChatOllama(model=model_name, callbacks=callbacks)
+        return ChatOllama(model=model_name, callbacks=callbacks, **kwargs)
     elif provider == "anthropic" or provider == "claude":
-        return ChatAnthropic(model=model_name, callbacks=callbacks)
+        return ChatAnthropic(model=model_name, callbacks=callbacks, **kwargs)
     elif provider == "groq":
-        return ChatGroq(model=model_name, callbacks=callbacks)
+        return ChatGroq(model=model_name, callbacks=callbacks, **kwargs)
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-def get_llm() -> BaseChatModel:
+def get_llm(**kwargs) -> BaseChatModel:
     """
     Retrieves the LLM with fallback support based on LLM_ORDER environment variable.
     Format: provider/model,provider/model,...
-    Example: gemini/gemini-2.5-flash,ollama/llama3.1
+    Example: gemini/gemini-2.5-flash,groq/llama-3.3-70b-versatile
     """
     llm_order_str = os.getenv("LLM_ORDER")
     
@@ -57,7 +57,7 @@ def get_llm() -> BaseChatModel:
         # Fallback to legacy env vars if LLM_ORDER not set
         provider = os.getenv("MODEL_PROVIDER", "gemini")
         model = os.getenv("MODEL_NAME", "gemini-2.5-flash")
-        return create_llm(provider, model)
+        return create_llm(provider, model, **kwargs)
 
     # Parse the order
     models = []
@@ -71,7 +71,7 @@ def get_llm() -> BaseChatModel:
         
         provider, model_name = entry.split("/", 1)
         try:
-            llm = create_llm(provider, model_name)
+            llm = create_llm(provider, model_name, **kwargs)
             models.append(llm)
         except Exception as e:
             print(f"Error creating LLM for {entry}: {e}")

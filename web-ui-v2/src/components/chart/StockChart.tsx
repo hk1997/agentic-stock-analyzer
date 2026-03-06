@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData, SeriesMarker } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData, SeriesMarker, createSeriesMarkers } from 'lightweight-charts';
 import type { PricePoint } from '../../types/api';
 import type { IndicatorPoint } from '../../hooks/useIndicators';
 import type { BacktestResult } from '../../hooks/useBacktest';
@@ -139,13 +139,16 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
         const validHistory = history.filter(d => Boolean(d.time) && d.close !== undefined);
         const sortedHistory = [...validHistory].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
+        // Ensure times are strictly string (yyyy-mm-dd) to avoid tick inconsistencies
+        const formattedHistory = sortedHistory.map(d => ({ ...d, time: String(d.time) }));
+
         // PRICE CHART
         let mainSeries;
         if (chartType === 'candlestick') {
             mainSeries = priceChart.addSeries(CandlestickSeries, {
                 upColor: '#00e676', downColor: '#ff1744', borderVisible: false, wickUpColor: '#00e676', wickDownColor: '#ff1744',
             });
-            const data: CandlestickData[] = sortedHistory.map(d => ({
+            const data: CandlestickData[] = formattedHistory.map(d => ({
                 time: d.time as any, open: d.open || d.close, high: d.high || d.close, low: d.low || d.close, close: d.close
             }));
             mainSeries.setData(data);
@@ -153,7 +156,7 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
             mainSeries = priceChart.addSeries(AreaSeries, {
                 lineColor: isPositive ? '#00e676' : '#ff1744', topColor: isPositive ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 23, 68, 0.4)', bottomColor: 'transparent', lineWidth: 2,
             });
-            const data: LineData[] = sortedHistory.map(d => ({ time: d.time as any, value: d.close }));
+            const data: LineData[] = formattedHistory.map(d => ({ time: d.time as any, value: d.close }));
             mainSeries.setData(data);
         }
 
@@ -161,12 +164,12 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
         if (backtestResult && backtestResult.trades.length > 0) {
             try {
                 // Lightweight charts will crash if a marker is placed on a date that is not in the series data
-                const validTimes = new Set(sortedHistory.map(d => d.time));
+                const validTimes = new Set(formattedHistory.map(d => String(d.time)));
 
                 const markers: SeriesMarker<any>[] = backtestResult.trades
-                    .filter(t => validTimes.has(t.date))
+                    .filter(t => validTimes.has(String(t.date)))
                     .map(t => ({
-                        time: t.date as any,
+                        time: String(t.date) as any,
                         position: t.type === 'BUY' ? 'belowBar' : 'aboveBar',
                         color: t.type === 'BUY' ? '#00e676' : '#ff1744',
                         shape: t.type === 'BUY' ? 'arrowUp' : 'arrowDown',
@@ -174,7 +177,8 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
                     }));
 
                 if (markers.length > 0) {
-                    (mainSeries as any).setMarkers(markers);
+                    // v5.x detached markers API
+                    createSeriesMarkers(mainSeries, markers);
                 }
             } catch (err) {
                 console.warn('Failed to render backtest trade markers:', err);

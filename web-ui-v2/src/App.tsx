@@ -5,6 +5,7 @@ import { StockChart } from './components/chart/StockChart'
 import { StatsRow } from './components/stats/StatCard'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { StrategyBuilder } from './components/StrategyBuilder'
+import FundamentalHighlights from './components/FundamentalHighlights'
 import { useChat } from './hooks/useChat'
 import { useStockData } from './hooks/useStockData'
 import { useIndicators } from './hooks/useIndicators'
@@ -37,6 +38,8 @@ function App() {
                         period={period}
                         onPeriodChange={setPeriod}
                     />
+
+                    <FundamentalHighlights ticker={activeTicker} />
 
                     <StatsRow
                         peRatio={stockData?.peRatio}
