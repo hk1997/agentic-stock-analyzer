@@ -118,26 +118,26 @@ export function StrategyBuilder({ ticker, onResult }: StrategyBuilderProps) {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div style={{ background: 'rgba(20, 25, 40, 0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                 <div style={{ fontSize: '11px', color: '#a0a5b9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Return</div>
-                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: result.total_return_pct >= 0 ? '#00e676' : '#ff1744', marginTop: '4px' }}>
-                                    {result.total_return_pct >= 0 ? '+' : ''}{result.total_return_pct.toFixed(2)}%
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: (result?.total_return_pct ?? 0) >= 0 ? '#00e676' : '#ff1744', marginTop: '4px' }}>
+                                    {(result?.total_return_pct ?? 0) >= 0 ? '+' : ''}{(result?.total_return_pct ?? 0).toFixed(2)}%
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>vs Buy & Hold: {result.benchmark_return_pct.toFixed(2)}%</div>
+                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>vs Buy & Hold: {(result?.benchmark_return_pct ?? 0).toFixed(2)}%</div>
                             </div>
 
                             <div style={{ background: 'rgba(20, 25, 40, 0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                                 <div style={{ fontSize: '11px', color: '#a0a5b9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Win Rate</div>
                                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
-                                    {result.win_rate_pct.toFixed(1)}%
+                                    {(result?.win_rate_pct ?? 0).toFixed(1)}%
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{result.total_trades} total trades</div>
+                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{result?.total_trades ?? 0} total trades</div>
                             </div>
 
                             <div style={{ background: 'rgba(20, 25, 40, 0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', gridColumn: 'span 2' }}>
                                 <div style={{ fontSize: '11px', color: '#a0a5b9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final Equity</div>
                                 <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
-                                    ${result.final_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    ${(result?.final_value ?? capital).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Starting: ${result.initial_capital.toLocaleString()}</div>
+                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Starting: ${(result?.initial_capital ?? capital).toLocaleString()}</div>
                             </div>
                         </div>
 
@@ -158,12 +158,12 @@ export function StrategyBuilder({ ticker, onResult }: StrategyBuilderProps) {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {result.trades.slice().reverse().map((t, i) => (
+                                            {(result?.trades || []).slice().reverse().map((t, i) => (
                                                 <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                                                     <td style={{ padding: '8px', color: '#fff' }}>{t.date}</td>
                                                     <td style={{ padding: '8px', color: t.type === 'BUY' ? '#00e676' : '#ff1744', fontWeight: 'bold' }}>{t.type}</td>
-                                                    <td style={{ padding: '8px', color: '#fff', textAlign: 'right' }}>${t.price.toFixed(2)}</td>
-                                                    <td style={{ padding: '8px', color: '#fff', textAlign: 'right' }}>{t.shares}</td>
+                                                    <td style={{ padding: '8px', color: '#fff', textAlign: 'right' }}>${(t.price || 0).toFixed(2)}</td>
+                                                    <td style={{ padding: '8px', color: '#fff', textAlign: 'right' }}>{t.shares || 0}</td>
                                                 </tr>
                                             ))}
                                         </tbody>

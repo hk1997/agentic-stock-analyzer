@@ -38,26 +38,24 @@ function App() {
                         onPeriodChange={setPeriod}
                     />
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', alignItems: 'stretch' }}>
-                        <StatsRow
-                            peRatio={stockData?.peRatio}
-                            marketCap={stockData?.marketCap}
-                            fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
-                            fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
-                            loading={stockLoading || !stockData}
-                        />
+                    <StatsRow
+                        peRatio={stockData?.peRatio}
+                        marketCap={stockData?.marketCap}
+                        fiftyTwoWeekHigh={stockData?.fiftyTwoWeekHigh}
+                        fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
+                        loading={stockLoading || !stockData}
+                    />
 
-                        <StrategyBuilder
-                            ticker={stockData?.ticker || activeTicker}
-                            onResult={setBacktestResult}
-                        />
+                    <StrategyBuilder
+                        ticker={stockData?.ticker || activeTicker}
+                        onResult={setBacktestResult}
+                    />
 
-                        <ChatPanel
-                            messages={messages}
-                            isStreaming={isStreaming}
-                            onSend={sendMessage}
-                        />
-                    </div>
+                    <ChatPanel
+                        messages={messages}
+                        isStreaming={isStreaming}
+                        onSend={sendMessage}
+                    />
                 </div>
             </main>
         </>
