@@ -389,6 +389,53 @@ async def run_backtest(request: BacktestRequestAPI):
     except Exception as exc:
         return {"error": str(exc)}
 
+# ── Fundamentals Narrative Endpoints ───────────────────────
+
+@app.get("/api/fundamentals/{ticker}/story")
+async def get_fundamental_story(ticker: str):
+    """Generates the Business Model Story via Gemini."""
+    try:
+        from app.fundamentals import generate_business_story
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_business_story, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/fundamentals/{ticker}/porter")
+async def get_fundamental_porter(ticker: str):
+    """Generates Porter's 5 Forces Analysis via Gemini."""
+    try:
+        from app.fundamentals import generate_porter_forces
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_porter_forces, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/fundamentals/{ticker}/competitors")
+async def get_fundamental_competitors(ticker: str):
+    """Generates Top 3 Competitor Comparison via Gemini."""
+    try:
+        from app.fundamentals import generate_competitor_comparison
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            loop = asyncio.get_running_loop()
+            markdown_result = await loop.run_in_executor(executor, generate_competitor_comparison, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": markdown_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
