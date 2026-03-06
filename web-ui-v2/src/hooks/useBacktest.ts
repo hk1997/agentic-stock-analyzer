@@ -47,11 +47,7 @@ export function useBacktest() {
                 setError(data.error);
                 setResult(null);
             } else {
-                setResult({
-                    strategy: data.strategy,
-                    trades: data.trades || [],
-                    ...(data.metrics || {})
-                });
+                setResult(data);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
