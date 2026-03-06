@@ -38,6 +38,12 @@ PyYAML = ">=6.0.1"
 python-dateutil = ">=2.8.2"
 duckduckgo-search = ">=6.1.7"
 edgartools = ">=3.0.0"
+redis = "^7.2.1"
+asyncpg = "^0.31.0"
+sqlalchemy = "^2.0.48"
+psycopg2-binary = "^2.9.11"
+langgraph-checkpoint-postgres = "^3.0.4"
+psycopg = {extras = ["binary"], version = "^3.3.3"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"

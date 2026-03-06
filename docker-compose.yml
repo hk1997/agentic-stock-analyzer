@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  valkey:
+    image: valkey/valkey:8.0
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password # Local dev
+      POSTGRES_DB: stock_analyzer
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+
   api:
     build:
       context: .
@@ -16,6 +34,11 @@ services:
     environment:
       - PORT=8000
       - HOST=0.0.0.0
+      - VALKEY_URL=redis://valkey:6379/0
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@timescaledb:5432/stock_analyzer
+    depends_on:
+      - valkey
+      - timescaledb
 
   ui:
     build:
@@ -31,3 +54,7 @@ services:
       - API_URL=http://api:8000
     depends_on:
       - api
+
+volumes:
+  valkey_data:
+  timescaledb_data:

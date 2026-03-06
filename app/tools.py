@@ -1,11 +1,54 @@
+import json
 import yfinance as yf
 import pandas as pd
 from langchain_core.tools import tool
-from functools import lru_cache
 from datetime import datetime, timedelta
 from .sec_tools import get_latest_10k, get_latest_10q
+from .cache import VALKEY_URL
+import redis
 
-@lru_cache(maxsize=10)
+# Use a synchronous Redis client for the tools since LangGraph tools run in threads
+_sync_valkey_pool = redis.ConnectionPool.from_url(VALKEY_URL, decode_responses=True)
+_sync_client = redis.Redis(connection_pool=_sync_valkey_pool)
+
+def sync_valkey_cache(ttl_seconds=3600):
+    """Synchronous caching decorator for helper functions."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            key_parts = [func.__name__]
+            key_parts.extend([str(arg) for arg in args])
+            key_parts.extend([f"{k}={v}" for k, v in sorted(kwargs.items())])
+            cache_key = "tool:" + ":".join(key_parts)
+            
+            try:
+                cached = _sync_client.get(cache_key)
+                if cached:
+                    # Specific handling for pandas dataframe caching
+                    data = json.loads(cached)
+                    if isinstance(data, dict) and 'df_json' in data:
+                        return pd.read_json(data['df_json'], orient='split')
+                    return data
+            except Exception as e:
+                print(f"Sync Cache Read Error: {e}")
+                
+            result = func(*args, **kwargs)
+            
+            try:
+                if result is not None:
+                    if isinstance(result, pd.DataFrame):
+                        # Serialize DataFrame safely
+                        val = json.dumps({'df_json': result.to_json(orient='split', date_format='iso')})
+                    else:
+                        val = json.dumps(result)
+                    _sync_client.setex(cache_key, ttl_seconds, val)
+            except Exception as e:
+                print(f"Sync Cache Write Error: {e}")
+                
+            return result
+        return wrapper
+    return decorator
+
+@sync_valkey_cache(ttl_seconds=1800) # 30 min cache for stock data to avoid spamming YFinance
 def _get_stock_data(ticker: str, days: int = 100) -> pd.DataFrame:
     """Helper to fetch and cache stock data to avoid spamming the API.
     

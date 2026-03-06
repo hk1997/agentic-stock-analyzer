@@ -1,7 +1,7 @@
 # app/fundamentals.py
 import yfinance as yf
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from .llm import get_llm
 
 import functools
 
@@ -55,12 +55,9 @@ Target Summary: {context['longBusinessSummary']}
         background_info=background_text
     )
     
-    # Instantiate the LLM (Requires GOOGLE_API_KEY in environment)
-    # Using gemini-2.5-flash as it is extremely fast and capable of excellent reasoning/writing
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        temperature=0.7 # Slight temperature for creative analogies
-    )
+    # Instantiate the LLM using the centralized factory to support dynamic fallbacks (e.g. Groq)
+    # We pass temperature=0.7 to allow slight creativity for analogies.
+    llm = get_llm(temperature=0.7)
     
     messages = [
         SystemMessage(content=formatted_prompt),

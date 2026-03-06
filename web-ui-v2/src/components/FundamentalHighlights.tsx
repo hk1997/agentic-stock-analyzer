@@ -23,7 +23,7 @@ export default function FundamentalHighlights({ ticker }: FundamentalHighlightsP
     }
 
     useEffect(() => {
-        let ignore = false;
+        let isMounted = true;
 
         const fetchCurrentTab = async () => {
             if (!ticker || data[activeTab]) return;
@@ -34,19 +34,20 @@ export default function FundamentalHighlights({ ticker }: FundamentalHighlightsP
                 const resp = await fetch(`http://localhost:8000/api/fundamentals/${ticker}/${activeTab}`);
                 const result = await resp.json();
 
-                if (!ignore) {
+                if (isMounted) {
                     if (!resp.ok || result.error) {
-                        throw new Error(result.error || `HTTP Error ${resp.status}`);
+                        setError(result.error || `HTTP Error ${resp.status}`);
+                    } else {
+                        setData(prev => ({ ...prev, [activeTab]: result.markdown }));
                     }
-                    setData(prev => ({ ...prev, [activeTab]: result.markdown }));
                 }
             } catch (err: any) {
-                if (!ignore) {
+                if (isMounted) {
                     setError(err.message || 'Failed to fetch fundamental analysis');
                     console.error('Fundamental API Error:', err);
                 }
             } finally {
-                if (!ignore) {
+                if (isMounted) {
                     setLoading(false);
                 }
             }
@@ -54,7 +55,7 @@ export default function FundamentalHighlights({ ticker }: FundamentalHighlightsP
 
         fetchCurrentTab();
 
-        return () => { ignore = true; };
+        return () => { isMounted = false; };
     }, [activeTab, ticker, data]);
 
     const tabs: { key: TabKey, label: string }[] = [
