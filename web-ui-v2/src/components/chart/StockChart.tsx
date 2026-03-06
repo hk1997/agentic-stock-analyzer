@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, LineData, CandlestickData, ColorType, CrosshairMode, CandlestickSeries, AreaSeries, LineSeries, HistogramSeries, HistogramData, SeriesMarker } from 'lightweight-charts';
 import type { PricePoint } from '../../types/api';
 import type { IndicatorPoint } from '../../hooks/useIndicators';
+import type { BacktestResult } from '../../hooks/useBacktest';
 import { TrendingUp, TrendingDown, Settings2 } from 'lucide-react';
 
 interface StockChartProps {
@@ -11,6 +12,8 @@ interface StockChartProps {
     changePct: number;
     history: PricePoint[];
     indicators?: IndicatorPoint[];
+    activeIndicators?: string[];
+    backtestResult?: BacktestResult | null;
     loading?: boolean;
     period: string;
     onPeriodChange: (period: string) => void;
@@ -27,7 +30,7 @@ const PERIODS = [
     { label: 'Max', value: 'max' },
 ];
 
-export function StockChart({ ticker, price, change, changePct, history, indicators = [], loading, period, onPeriodChange }: StockChartProps) {
+export function StockChart({ ticker, price, change, changePct, history, indicators = [], activeIndicators = [], backtestResult, loading, period, onPeriodChange }: StockChartProps) {
     const isPositive = change >= 0;
     const priceChartContainerRef = useRef<HTMLDivElement>(null);
     const rsiChartContainerRef = useRef<HTMLDivElement>(null);
@@ -40,14 +43,20 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
     // Indicator Management State
     const [showIndicatorMenu, setShowIndicatorMenu] = useState(false);
-    const [activeIndicators, setActiveIndicators] = useState<string[]>(['sma50', 'rsi', 'macd']);
+
+    // Note: Local state mgmt for indicators is moved internally to avoid parent complexity
+    // if activeIndicators prop isn't passed
+    const [localActiveIndicators, setLocalActiveIndicators] = useState<string[]>(activeIndicators.length > 0 ? activeIndicators : ['sma20', 'rsi']);
 
     const toggleIndicator = (id: string) => {
-        setActiveIndicators(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+        setLocalActiveIndicators(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
     };
 
-    const hasRSI = activeIndicators.includes('rsi');
-    const hasMACD = activeIndicators.includes('macd');
+    const hasRSI = localActiveIndicators.includes('rsi');
+    const hasMACD = localActiveIndicators.includes('macd');
+    const hasVolume = localActiveIndicators.includes('volume');
 
     useEffect(() => {
         if (!priceChartContainerRef.current) return;
@@ -147,13 +156,38 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
             const data: LineData[] = sortedHistory.map(d => ({ time: d.time as any, value: d.close }));
             mainSeries.setData(data);
         }
+
+        // Add Trade Markers if Backtesting
+        if (backtestResult && backtestResult.trades.length > 0) {
+            try {
+                // Lightweight charts will crash if a marker is placed on a date that is not in the series data
+                const validTimes = new Set(sortedHistory.map(d => d.time));
+
+                const markers: SeriesMarker<any>[] = backtestResult.trades
+                    .filter(t => validTimes.has(t.date))
+                    .map(t => ({
+                        time: t.date as any,
+                        position: t.type === 'BUY' ? 'belowBar' : 'aboveBar',
+                        color: t.type === 'BUY' ? '#00e676' : '#ff1744',
+                        shape: t.type === 'BUY' ? 'arrowUp' : 'arrowDown',
+                        text: t.type === 'BUY' ? 'Buy' : 'Sell',
+                    }));
+
+                if (markers.length > 0) {
+                    (mainSeries as any).setMarkers(markers);
+                }
+            } catch (err) {
+                console.warn('Failed to render backtest trade markers:', err);
+            }
+        }
+
         seriesRef.current['main'] = { chart: priceChart, handle: mainSeries };
 
         // INDICATOR OVERLAYS & PANES
         if (indicators && indicators.length > 0) {
             const sortedInds = [...indicators].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-            if (activeIndicators.includes('sma20')) {
+            if (localActiveIndicators.includes('sma20')) {
                 const sma20Series = priceChart.addSeries(LineSeries, { color: '#00B0FF', lineWidth: 2, title: 'SMA 20' });
                 sma20Series.setData(sortedInds.filter(d => d.sma20 !== null).map(d => ({ time: d.time as any, value: d.sma20 as number })));
                 seriesRef.current['sma20'] = { chart: priceChart, handle: sma20Series };
@@ -168,12 +202,12 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
                 sma200Series.setData(sortedInds.filter(d => d.sma200 !== null).map(d => ({ time: d.time as any, value: d.sma200 as number })));
                 seriesRef.current['sma200'] = { chart: priceChart, handle: sma200Series };
             }
-            if (activeIndicators.includes('ema20')) {
+            if (localActiveIndicators.includes('ema20')) {
                 const ema20Series = priceChart.addSeries(LineSeries, { color: '#FFD600', lineWidth: 2, title: 'EMA 20' });
                 ema20Series.setData(sortedInds.filter(d => d.ema20 !== null).map(d => ({ time: d.time as any, value: d.ema20 as number })));
                 seriesRef.current['ema20'] = { chart: priceChart, handle: ema20Series };
             }
-            if (activeIndicators.includes('bbands')) {
+            if (localActiveIndicators.includes('bb')) {
                 const upperBand = priceChart.addSeries(LineSeries, { color: 'rgba(255, 255, 255, 0.4)', lineWidth: 1, lineStyle: 2 });
                 upperBand.setData(sortedInds.filter(d => d.upper_band !== null).map(d => ({ time: d.time as any, value: d.upper_band as number })));
                 const lowerBand = priceChart.addSeries(LineSeries, { color: 'rgba(255, 255, 255, 0.4)', lineWidth: 1, lineStyle: 2 });
@@ -213,14 +247,14 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
         priceChart.timeScale().fitContent();
 
-    }, [history, indicators, chartType, isPositive, activeIndicators, hasRSI, hasMACD]);
+    }, [history, indicators, backtestResult, chartType, isPositive, localActiveIndicators, hasRSI, hasMACD]);
 
     const availableIndicators = [
         { id: 'sma20', label: 'SMA 20' },
         { id: 'sma50', label: 'SMA 50' },
         { id: 'sma200', label: 'SMA 200' },
         { id: 'ema20', label: 'EMA 20' },
-        { id: 'bbands', label: 'Bollinger Bands' },
+        { id: 'bb', label: 'Bollinger Bands' },
         { id: 'rsi', label: 'RSI (14)' },
         { id: 'macd', label: 'MACD' },
     ];
@@ -256,15 +290,21 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
                     {showIndicatorMenu && (
                         <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '8px', background: '#1c2132', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px', zIndex: 50, display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
                             {availableIndicators.map(ind => (
-                                <label key={ind.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff', fontSize: '12px', cursor: 'pointer', padding: '4px' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={activeIndicators.includes(ind.id)}
-                                        onChange={() => toggleIndicator(ind.id)}
-                                        style={{ accentColor: '#3b82f6' }}
-                                    />
+                                <button
+                                    key={ind.id}
+                                    onClick={() => toggleIndicator(ind.id)}
+                                    style={{
+                                        border: 'none', background: localActiveIndicators.includes(ind.id) ? 'rgba(0, 242, 254, 0.1)' : 'transparent',
+                                        color: localActiveIndicators.includes(ind.id) ? '#00f2fe' : '#a0a5b9',
+                                        padding: '8px 12px', textAlign: 'left', cursor: 'pointer', fontSize: '13px',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                                    }}
+                                >
                                     {ind.label}
-                                </label>
+                                    {localActiveIndicators.includes(ind.id) && (
+                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00f2fe', marginLeft: '8px' }}></span>
+                                    )}
+                                </button>
                             ))}
                         </div>
                     )}
