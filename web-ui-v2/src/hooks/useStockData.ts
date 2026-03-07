@@ -20,6 +20,14 @@ export function useStockData(ticker: string | null, period: string = '1mo') {
                 if (json.error) {
                     setError(json.error)
                 } else {
+                    // Dynamically calculate the period return instead of relying on the backend's static daily return
+                    if (json.history && json.history.length > 0) {
+                        const startPrice = json.history[0].open || json.history[0].close;
+                        const endPrice = json.history[json.history.length - 1].close;
+
+                        json.change = Number((endPrice - startPrice).toFixed(2));
+                        json.changePct = Number(((json.change / startPrice) * 100).toFixed(2));
+                    }
                     setData(json)
                 }
             })

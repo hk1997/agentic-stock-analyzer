@@ -53,11 +53,30 @@ async def update_active_tickers_prices():
         await _ingest_price_history(ticker)
 
 async def _ingest_price_history(ticker: str):
-    """Fetches yfinance data and upserts into TimescaleDB hypertable."""
+    """Fetches yfinance data incrementally and upserts into TimescaleDB hypertable."""
     try:
-        # We use a threadpool for the blocking yfinance call
+        async with async_session() as session:
+            # 1. Find the latest data point we already have for this ticker
+            stmt = select(func.max(StockDailyPrice.time)).where(StockDailyPrice.ticker == ticker.upper())
+            result = await session.execute(stmt)
+            max_date = result.scalar()
+            
         loop = asyncio.get_running_loop()
-        hist = await loop.run_in_executor(None, lambda: yf.Ticker(ticker).history(period="1mo"))
+        
+        # 2. Fetch only what we need from yfinance
+        if max_date:
+            # yfinance expects YYYY-MM-DD strings for start/end
+            # We add 1 day to the max_date to avoid re-fetching the same day if market is closed
+            # However, if it's intraday, we might want the same day to get the updated close. 
+            # For simplicity & safety, we'll fetch from the max_date itself and let ON CONFLICT handle the 1-day overlap.
+            start_str = max_date.strftime('%Y-%m-%d')
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                hist = await loop.run_in_executor(executor, lambda: yf.Ticker(ticker).history(start=start_str))
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                hist = await loop.run_in_executor(executor, lambda: yf.Ticker(ticker).history(period="1mo"))
         
         if hist.empty:
             return

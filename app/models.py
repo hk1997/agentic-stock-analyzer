@@ -21,6 +21,18 @@ class CompanyProfile(Base):
     country = Column(String(100))
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
+class AIFundamentals(Base):
+    """
+    Relational table storing AI-generated fundamental analysis.
+    """
+    __tablename__ = "ai_fundamentals"
+    
+    ticker = Column(String(10), primary_key=True, index=True)
+    story = Column(String)
+    porter = Column(String)
+    competitors = Column(String)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
 class UserQueryLog(Base):
     """
     Relational log tracking ticker searches to dynamically calculate Top 10 lists.

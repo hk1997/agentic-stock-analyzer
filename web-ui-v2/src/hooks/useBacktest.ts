@@ -12,24 +12,33 @@ export interface BacktestResult {
     ticker: string;
     period_days: number;
     initial_capital: number;
+    stop_loss_pct: number;
     final_value: number;
     total_return_pct: number;
     benchmark_return_pct: number;
     win_rate_pct: number;
+    max_drawdown_pct: number;
     total_trades: number;
     final_position_shares: number;
     trades: Trade[];
+    equity_curve: {
+        date: string;
+        equity: number;
+        drawdown_pct: number;
+    }[];
+    error?: string;
 }
 
 export interface BacktestRequest {
     ticker: string;
-    strategy: string;
+    strategies: string[];
     initial_capital: number;
     days: number;
+    stop_loss_pct: number;
 }
 
 export function useBacktest() {
-    const [result, setResult] = useState<BacktestResult | null>(null);
+    const [results, setResults] = useState<BacktestResult[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -45,22 +54,23 @@ export function useBacktest() {
             const data = await response.json();
             if (data.error) {
                 setError(data.error);
-                setResult(null);
+                setResults(null);
             } else {
-                setResult(data);
+                // If the backend returns an array of objects
+                setResults(Array.isArray(data) ? data : [data]);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
-            setResult(null);
+            setResults(null);
         } finally {
             setLoading(false);
         }
     };
 
     const clearBacktest = () => {
-        setResult(null);
+        setResults(null);
         setError(null);
     };
 
-    return { result, loading, error, runBacktest, clearBacktest };
+    return { results, loading, error, runBacktest, clearBacktest };
 }

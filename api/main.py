@@ -393,95 +393,180 @@ async def get_stock_indicators(ticker: str, background_tasks: BackgroundTasks, p
 
 class BacktestRequestAPI(BaseModel):
     ticker: str
-    strategy: str = "sma_crossover"
+    strategies: list[str] = ["sma_crossover"]
     initial_capital: float = 10000.0
     days: int = 365
+    stop_loss_pct: float = 0.0
 
 @app.post("/api/backtest")
 @cached_async(ttl_seconds=3600) # Longer TTL for backtesting results
 async def run_backtest(request: BacktestRequestAPI):
     """
-    Runs a strategy backtest and returns JSON results.
+    Runs a list of strategy backtests concurrently and returns JSON results.
     """
     try:
         from app.tools import backtest_strategy
         import concurrent.futures
         import json
 
-        def _run():
-            return backtest_strategy.invoke({
+        def _run(strategy_name: str):
+            res = backtest_strategy.invoke({
                 "ticker": request.ticker,
-                "strategy": request.strategy,
+                "strategy": strategy_name,
                 "initial_capital": request.initial_capital,
-                "days": request.days
+                "days": request.days,
+                "stop_loss_pct": request.stop_loss_pct
             })
+            if isinstance(res, str):
+                try:
+                    return json.loads(res)
+                except json.JSONDecodeError:
+                    return {"error": res, "strategy": strategy_name}
+            return res
             
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="bt_worker") as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5, thread_name_prefix="bt_worker") as executor:
             loop = asyncio.get_running_loop()
-            result_str = await loop.run_in_executor(executor, _run)
+            tasks = [
+                loop.run_in_executor(executor, _run, strat)
+                for strat in request.strategies
+            ]
+            results = await asyncio.gather(*tasks)
             
-        if isinstance(result_str, str):
-            try:
-                return json.loads(result_str)
-            except json.JSONDecodeError:
-                return {"error": result_str}
-        return result_str
+        return results
         
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/levels/{ticker}")
+@cached_async(ttl_seconds=3600)
+async def get_key_levels(ticker: str):
+    """Fetches key Support and Resistance levels for a ticker."""
+    try:
+        from app.tools import calculate_key_levels
+        import concurrent.futures
+        import json
+        
+        def _run():
+            res = calculate_key_levels.invoke({"ticker": ticker})
+            if isinstance(res, str):
+                try:
+                    return json.loads(res)
+                except json.JSONDecodeError:
+                    return {"error": res}
+            return res
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(executor, _run)
+            
+        return result
     except Exception as exc:
         return {"error": str(exc)}
 
 # ── Fundamentals Narrative Endpoints ───────────────────────
 
 @app.get("/api/fundamentals/{ticker}/story")
-@cached_async(ttl_seconds=2592000) # 30 Days TTL
+@cached_async(ttl_seconds=86400) # Secondary cache to reduce DB queries
 async def get_fundamental_story(ticker: str, background_tasks: BackgroundTasks):
-    """Generates the Business Model Story via Gemini."""
-    
-    # Just-In-Time Generation fallback: While the user reads the story, trigger Porter/Competitor generation in bg.
+    """Generates the Business Model Story via Gemini and permanently stores it in PostgreSQL."""
     background_tasks.add_task(trigger_jit_fundamentals, ticker)
     background_tasks.add_task(log_user_query, ticker, "fundamentals")
     
+    ticker_upper = ticker.upper()
+    from app.database import async_session
+    from app.models import AIFundamentals
+    from sqlalchemy import select
+    
+    async with async_session() as session:
+        result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+        db_record = result.scalar_one_or_none()
+        if db_record and db_record.story:
+            return {"ticker": ticker_upper, "markdown": db_record.story}
+            
     try:
         from app.fundamentals import generate_business_story
-        import concurrent.futures
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            loop = asyncio.get_running_loop()
-            markdown_result = await loop.run_in_executor(executor, generate_business_story, ticker)
+        markdown_result = await generate_business_story(ticker)
+        
+        async with async_session() as session:
+            result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+            db_record = result.scalar_one_or_none()
+            if not db_record:
+                db_record = AIFundamentals(ticker=ticker_upper, story=markdown_result)
+                session.add(db_record)
+            else:
+                db_record.story = markdown_result
+            await session.commit()
             
-        return {"ticker": ticker.upper(), "markdown": markdown_result}
+        return {"ticker": ticker_upper, "markdown": markdown_result}
     except Exception as exc:
         return {"error": str(exc)}
 
 @app.get("/api/fundamentals/{ticker}/porter")
-@cached_async(ttl_seconds=2592000) # 30 Days TTL
+@cached_async(ttl_seconds=86400) # Secondary cache
 async def get_fundamental_porter(ticker: str):
-    """Generates Porter's 5 Forces Analysis via Gemini."""
+    """Generates Porter's 5 Forces Analysis via Gemini and stores it in PostgreSQL."""
+    ticker_upper = ticker.upper()
+    from app.database import async_session
+    from app.models import AIFundamentals
+    from sqlalchemy import select
+    
+    async with async_session() as session:
+        result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+        db_record = result.scalar_one_or_none()
+        if db_record and db_record.porter:
+            return {"ticker": ticker_upper, "markdown": db_record.porter}
+            
     try:
         from app.fundamentals import generate_porter_forces
-        import concurrent.futures
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            loop = asyncio.get_running_loop()
-            markdown_result = await loop.run_in_executor(executor, generate_porter_forces, ticker)
+        markdown_result = await generate_porter_forces(ticker)
+        
+        async with async_session() as session:
+            result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+            db_record = result.scalar_one_or_none()
+            if not db_record:
+                db_record = AIFundamentals(ticker=ticker_upper, porter=markdown_result)
+                session.add(db_record)
+            else:
+                db_record.porter = markdown_result
+            await session.commit()
             
-        return {"ticker": ticker.upper(), "markdown": markdown_result}
+        return {"ticker": ticker_upper, "markdown": markdown_result}
     except Exception as exc:
         return {"error": str(exc)}
 
 @app.get("/api/fundamentals/{ticker}/competitors")
-@cached_async(ttl_seconds=2592000) # 30 Days TTL
+@cached_async(ttl_seconds=86400) # Secondary cache
 async def get_fundamental_competitors(ticker: str):
-    """Generates Top 3 Competitor Comparison via Gemini."""
+    """Generates Top 3 Competitor Comparison via Gemini and stores it in PostgreSQL."""
+    ticker_upper = ticker.upper()
+    from app.database import async_session
+    from app.models import AIFundamentals
+    from sqlalchemy import select
+    
+    async with async_session() as session:
+        result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+        db_record = result.scalar_one_or_none()
+        if db_record and db_record.competitors:
+            return {"ticker": ticker_upper, "markdown": db_record.competitors}
+            
     try:
         from app.fundamentals import generate_competitor_comparison
-        import concurrent.futures
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            loop = asyncio.get_running_loop()
-            markdown_result = await loop.run_in_executor(executor, generate_competitor_comparison, ticker)
+        markdown_result = await generate_competitor_comparison(ticker)
+        
+        async with async_session() as session:
+            result = await session.execute(select(AIFundamentals).where(AIFundamentals.ticker == ticker_upper))
+            db_record = result.scalar_one_or_none()
+            if not db_record:
+                db_record = AIFundamentals(ticker=ticker_upper, competitors=markdown_result)
+                session.add(db_record)
+            else:
+                db_record.competitors = markdown_result
+            await session.commit()
             
-        return {"ticker": ticker.upper(), "markdown": markdown_result}
+        return {"ticker": ticker_upper, "markdown": markdown_result}
     except Exception as exc:
         return {"error": str(exc)}
 

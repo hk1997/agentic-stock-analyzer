@@ -433,14 +433,15 @@ def get_risk_metrics(ticker: str):
         return f"Error calculating risk metrics for {ticker}: {e}"
 
 @tool
-def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capital: float = 10000.0, days: int = 365):
+def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capital: float = 10000.0, days: int = 365, stop_loss_pct: float = 0.0):
     """Backtests a simple trading strategy.
     
     Args:
         ticker: Stock symbol
-        strategy: 'sma_crossover' (Golden Cross), 'rsi_mean_reversion' (Buy<30, Sell>70), 'macd_crossover', or 'bollinger_reversion'.
+        strategy: 'sma_crossover', 'rsi_mean_reversion', 'macd_crossover', 'bollinger_reversion', 'macd_triple_screen', 'turtle_breakout'.
         initial_capital: Starting money (default 10000.0)
         days: Period to test (default 365)
+        stop_loss_pct: Percentage drop from entry to trigger an emergency exit (e.g., 5.0 for 5%).
     """
     print(f"\n   [System] Tool triggered: Backtesting '{strategy}' on {ticker}...")
     import json
@@ -483,14 +484,28 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
         elif strategy == "bollinger_reversion":
             sma20 = hist['Close'].rolling(window=20).mean()
             std20 = hist['Close'].rolling(window=20).std(ddof=0)
-            hist['UpperBand'] = sma20 + (std20 * 2)
-            hist['LowerBand'] = sma20 - (std20 * 2)
+        elif strategy == "macd_triple_screen":
+            exp1 = hist['Close'].ewm(span=12, adjust=False).mean()
+            exp2 = hist['Close'].ewm(span=26, adjust=False).mean()
+            macd = exp1 - exp2
+            signal = macd.ewm(span=9, adjust=False).mean()
+            hist['MACD_Hist'] = macd - signal
+            hist['EMA50'] = hist['Close'].ewm(span=50, adjust=False).mean()
+            
+        elif strategy == "turtle_breakout":
+            hist['High20'] = hist['High'].rolling(window=20).max()
+            hist['Low10'] = hist['Low'].rolling(window=10).min()
         
         # Simulation Loop
         start_index = len(hist) - days
         if start_index < 0: start_index = 0
         
         test_data = hist.iloc[start_index:].copy()
+        
+        equity_curve = []
+        rolling_max_equity = initial_capital
+        max_drawdown = 0.0
+        entry_price = 0.0
         
         for i in range(len(test_data) - 1): 
             today = test_data.iloc[i]
@@ -499,29 +514,51 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
             
             action = "HOLD"
             
-            if strategy == "sma_crossover":
-                if today['Signal'] == 1 and position == 0:
-                    action = "BUY"
-                elif today['Signal'] == 0 and position > 0:
+            # 1. Stop Loss Check
+            if position > 0 and stop_loss_pct > 0 and entry_price > 0:
+                if price <= entry_price * (1 - (stop_loss_pct / 100.0)):
                     action = "SELL"
-                    
-            elif strategy == "rsi_mean_reversion":
-                if today['RSI'] < 30 and position == 0:
-                    action = "BUY"
-                elif today['RSI'] > 70 and position > 0:
-                    action = "SELL"
-                    
-            elif strategy == "macd_crossover":
-                if today['MACD_Signal'] == 1 and position == 0:
-                    action = "BUY"
-                elif today['MACD_Signal'] == 0 and position > 0:
-                    action = "SELL"
-                    
-            elif strategy == "bollinger_reversion":
-                if today['Close'] <= today['LowerBand'] and position == 0:
-                    action = "BUY"
-                elif today['Close'] >= today['UpperBand'] and position > 0:
-                    action = "SELL"
+            
+            # 2. Strategy Logic (Only if stop loss didn't trigger)
+            if action == "HOLD":
+                if strategy == "sma_crossover":
+                    if today['Signal'] == 1 and position == 0:
+                        action = "BUY"
+                    elif today['Signal'] == 0 and position > 0:
+                        action = "SELL"
+                        
+                elif strategy == "rsi_mean_reversion":
+                    if today['RSI'] < 30 and position == 0:
+                        action = "BUY"
+                    elif today['RSI'] > 70 and position > 0:
+                        action = "SELL"
+                        
+                elif strategy == "macd_crossover":
+                    if today['MACD_Signal'] == 1 and position == 0:
+                        action = "BUY"
+                    elif today['MACD_Signal'] == 0 and position > 0:
+                        action = "SELL"
+                        
+                elif strategy == "bollinger_reversion":
+                    if today['Close'] <= today['LowerBand'] and position == 0:
+                        action = "BUY"
+                    elif today['Close'] >= today['UpperBand'] and position > 0:
+                        action = "SELL"
+                        
+                elif strategy == "macd_triple_screen":
+                    if position == 0 and today['MACD_Hist'] > 0 and price > today['EMA50']:
+                        action = "BUY"
+                    elif position > 0 and today['MACD_Hist'] < 0:
+                        action = "SELL"
+                        
+                elif strategy == "turtle_breakout":
+                    # For turtle, we need the *previous* day's high/low to avoid lookahead bias,
+                    # but since rolling max includes today, we check if price > yesterday's High20
+                    # For simplicity in this emulator, we'll buy if it simply hits the max.
+                    if position == 0 and price >= today['High20']:
+                        action = "BUY"
+                    elif position > 0 and price <= today['Low10']:
+                        action = "SELL"
             
             # Execute
             if action == "BUY":
@@ -529,16 +566,31 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
                 if shares_to_buy > 0:
                     capital -= shares_to_buy * price
                     position += shares_to_buy
+                    entry_price = price
                     trades.append({"date": date_str, "type": "BUY", "price": round(price, 2), "shares": int(shares_to_buy)})
             elif action == "SELL":
                 capital += position * price
                 trades.append({"date": date_str, "type": "SELL", "price": round(price, 2), "shares": int(position)})
                 position = 0
+                entry_price = 0.0
+                
+            # Log Daily Equity
+            current_value = capital + (position * price)
+            rolling_max_equity = max(rolling_max_equity, current_value)
+            dd_pct = ((current_value - rolling_max_equity) / rolling_max_equity) * 100 if rolling_max_equity > 0 else 0.0
+            max_drawdown = min(max_drawdown, dd_pct)
+            
+            equity_curve.append({
+                "date": date_str,
+                "equity": round(current_value, 2),
+                "drawdown_pct": round(dd_pct, 2)
+            })
                 
         # Final Value
         final_price = test_data.iloc[-1]['Close']
         final_value = capital + (position * final_price)
         total_return = ((final_value - initial_capital) / initial_capital) * 100
+
         
         # Benchmark (Buy and Hold)
         start_price = test_data.iloc[0]['Close']
@@ -563,18 +615,62 @@ def backtest_strategy(ticker: str, strategy: str = "sma_crossover", initial_capi
             "ticker": ticker.upper(),
             "period_days": days,
             "initial_capital": initial_capital,
+            "stop_loss_pct": stop_loss_pct,
             "final_value": round(final_value, 2),
             "total_return_pct": round(total_return, 2),
             "benchmark_return_pct": round(buy_hold_return, 2),
             "win_rate_pct": round(win_rate, 2),
+            "max_drawdown_pct": round(max_drawdown, 2),
             "total_trades": len(trades),
             "final_position_shares": position,
-            "trades": trades
+            "trades": trades,
+            "equity_curve": equity_curve
         })
         
     except Exception as e:
         import json
+        import traceback
+        traceback.print_exc()
         return json.dumps({"error": f"Error backtesting {strategy}: {e}"})
+@tool
+def calculate_key_levels(ticker: str, days: int = 365):
+    """Calculates key Support and Resistance levels based on recent price pivot points.
+    Returns primary S1, S2 and R1, R2.
+    """
+    print(f"\n   [System] Tool triggered: Calculating Key Levels for {ticker}...")
+    try:
+        hist = _get_stock_data(ticker, days=days)
+        if hist.empty: return f"Error: No data for {ticker}"
+        
+        # Calculate Pivot Points using recent 180 days (half year)
+        recent_hist = hist.tail(180)
+        high = recent_hist['High'].max()
+        low = recent_hist['Low'].min()
+        close = recent_hist['Close'].iloc[-1]
+        
+        pivot = (high + low + close) / 3
+        r1 = (2 * pivot) - low
+        s1 = (2 * pivot) - high
+        r2 = pivot + (high - low)
+        s2 = pivot - (high - low)
+        
+        # Current local swings (last 30 days) to give nearer term context
+        month_hist = hist.tail(30)
+        local_high = month_hist['High'].max()
+        local_low = month_hist['Low'].min()
+        
+        return json.dumps({
+             "ticker": ticker.upper(),
+             "current_price": round(close, 2),
+             "pivot": round(pivot, 2),
+             "resistance_1": round(max(r1, local_high), 2),
+             "resistance_2": round(r2, 2),
+             "support_1": round(min(s1, local_low), 2),
+             "support_2": round(s2, 2)
+        })
+    except Exception as e:
+        return json.dumps({"error": f"Error calculating key levels: {e}"})
+
 # Export all tools
 tools = [
     fetch_stock_price, 

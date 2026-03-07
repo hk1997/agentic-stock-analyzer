@@ -55,6 +55,23 @@ services:
     depends_on:
       - api
 
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - timescaledb
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      - valkey
+
 volumes:
   valkey_data:
   timescaledb_data:
+  redisinsight_data:
