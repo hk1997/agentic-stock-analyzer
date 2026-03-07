@@ -19,7 +19,7 @@ function App() {
     const [period, setPeriod] = useState('1mo')
     const { data: stockData, loading: stockLoading } = useStockData(activeTicker, period)
     const { indicators, loading: indLoading } = useIndicators(activeTicker, period)
-    const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
+    const [backtestResult, setBacktestResult] = useState<BacktestResult[] | null>(null)
 
     return (
         <>
@@ -41,6 +41,11 @@ function App() {
                         onPeriodChange={setPeriod}
                     />
 
+                    <StrategyBuilder
+                        ticker={stockData?.ticker || activeTicker}
+                        onResult={setBacktestResult}
+                    />
+
                     <FundamentalHighlights ticker={activeTicker} />
 
                     <StatsRow
@@ -54,11 +59,6 @@ function App() {
                     <NewsPanel ticker={stockData?.ticker || activeTicker} />
 
                     <FilingsPanel ticker={stockData?.ticker || activeTicker} />
-
-                    <StrategyBuilder
-                        ticker={stockData?.ticker || activeTicker}
-                        onResult={setBacktestResult}
-                    />
 
                     <ChatPanel
                         messages={messages}

@@ -11,36 +11,92 @@ from .prompts import (
     COMPETITOR_COMPARISON_PROMPT
 )
 
-@functools.lru_cache(maxsize=32)
-def _get_background_context(ticker: str) -> dict:
-    """Fetches high-level company profile data via yfinance."""
+import datetime
+from sqlalchemy import select
+from .database import async_session
+from .models import CompanyProfile
+
+async def _get_background_context(ticker: str) -> dict:
+    """
+    Fetches high-level company profile data from PostgreSQL.
+    If missing or older than 30 days, fetches fresh data via yfinance and persists it.
+    """
+    ticker_upper = ticker.upper()
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        
-        return {
-            "ticker": ticker.upper(),
-            "company_name": info.get("shortName", ticker.upper()),
-            "sector": info.get("sector", "Unknown"),
-            "industry": info.get("industry", "Unknown"),
-            "longBusinessSummary": info.get("longBusinessSummary", "No summary available.")
-        }
+        async with async_session() as session:
+            # 1. Check Database first
+            stmt = select(CompanyProfile).where(CompanyProfile.ticker == ticker_upper)
+            result = await session.execute(stmt)
+            profile = result.scalar_one_or_none()
+            
+            # Re-fetch if older than 30 days
+            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) # func.now() returns naive UTC in asyncpg by default
+            needs_update = True
+            if profile and profile.updated_at:
+                age = now - profile.updated_at
+                if age.days < 30:
+                    needs_update = False
+                    
+            if not needs_update and profile:
+                return {
+                    "ticker": profile.ticker,
+                    "company_name": profile.name or ticker_upper,
+                    "sector": profile.sector or "Unknown",
+                    "industry": profile.industry or "Unknown",
+                    "longBusinessSummary": profile.summary or "No summary available."
+                }
+                
+            # 2. Fetch fresh from yfinance (blocking, so run in executor)
+            import asyncio
+            import concurrent.futures
+            loop = asyncio.get_running_loop()
+            
+            def fetch_yf():
+                return yf.Ticker(ticker_upper).info
+                
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                info = await loop.run_in_executor(executor, fetch_yf)
+                
+            # 3. Upsert into database
+            if not profile:
+                profile = CompanyProfile(ticker=ticker_upper)
+                session.add(profile)
+                
+            profile.name = info.get("shortName", ticker_upper)
+            profile.sector = info.get("sector", "Unknown")
+            profile.industry = info.get("industry", "Unknown")
+            profile.summary = info.get("longBusinessSummary", "No summary available.")
+            profile.employees = info.get("fullTimeEmployees")
+            profile.city = info.get("city")
+            profile.country = info.get("country")
+            profile.updated_at = now
+            
+            await session.commit()
+            
+            return {
+                "ticker": profile.ticker,
+                "company_name": profile.name,
+                "sector": profile.sector,
+                "industry": profile.industry,
+                "longBusinessSummary": profile.summary
+            }
+            
     except Exception as e:
-        print(f"Error fetching fundamental info for {ticker}: {e}")
+        print(f"Error fetching/saving fundamental info for {ticker}: {e}")
         return {
-            "ticker": ticker.upper(),
-            "company_name": ticker.upper(),
+            "ticker": ticker_upper,
+            "company_name": ticker_upper,
             "sector": "Unknown",
             "industry": "Unknown",
             "longBusinessSummary": "No background available."
         }
 
-def _invoke_narrative_model(ticker: str, prompt_template: str) -> str:
+async def _invoke_narrative_model(ticker: str, prompt_template: str) -> str:
     """
-    Fetches the static background context, formats it into the highly structured prompt,
+    Fetches the static background context asynchronously, formats it into the prompt,
     and returns the LLM's generated markdown response.
     """
-    context = _get_background_context(ticker)
+    context = await _get_background_context(ticker)
     
     # We heavily ground the model by passing the official SEC/Yahoo finance standard description
     background_text = f"""
@@ -70,11 +126,11 @@ Target Summary: {context['longBusinessSummary']}
     except Exception as e:
         return f"Error generating narrative: {e}"
 
-def generate_business_story(ticker: str) -> str:
-    return _invoke_narrative_model(ticker, BUSINESS_MODEL_STORY_PROMPT)
+async def generate_business_story(ticker: str) -> str:
+    return await _invoke_narrative_model(ticker, BUSINESS_MODEL_STORY_PROMPT)
 
-def generate_porter_forces(ticker: str) -> str:
-    return _invoke_narrative_model(ticker, PORTER_5_FORCES_PROMPT)
+async def generate_porter_forces(ticker: str) -> str:
+    return await _invoke_narrative_model(ticker, PORTER_5_FORCES_PROMPT)
 
-def generate_competitor_comparison(ticker: str) -> str:
-    return _invoke_narrative_model(ticker, COMPETITOR_COMPARISON_PROMPT)
+async def generate_competitor_comparison(ticker: str) -> str:
+    return await _invoke_narrative_model(ticker, COMPETITOR_COMPARISON_PROMPT)

@@ -13,7 +13,7 @@ interface StockChartProps {
     history: PricePoint[];
     indicators?: IndicatorPoint[];
     activeIndicators?: string[];
-    backtestResult?: BacktestResult | null;
+    backtestResult?: BacktestResult[] | null;
     loading?: boolean;
     period: string;
     onPeriodChange: (period: string) => void;
@@ -40,6 +40,17 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
     const seriesRef = useRef<any>({});
 
     const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick');
+    const [levels, setLevels] = useState<any>(null);
+
+    useEffect(() => {
+        if (!ticker) return;
+        fetch(`http://localhost:8000/api/levels/${ticker}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.error) setLevels(data);
+            })
+            .catch(err => console.error("Failed to fetch levels:", err));
+    }, [ticker]);
 
     // Indicator Management State
     const [showIndicatorMenu, setShowIndicatorMenu] = useState(false);
@@ -160,13 +171,23 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
             mainSeries.setData(data);
         }
 
-        // Add Trade Markers if Backtesting
-        if (backtestResult && backtestResult.trades.length > 0) {
+        // Draw Support and Resistance Zones if available
+        if (levels) {
+            const lineStyle = 2; // Dashed
+            if (levels.support_1) mainSeries.createPriceLine({ price: levels.support_1, color: 'rgba(0, 230, 118, 0.8)', lineWidth: 2, lineStyle, title: 'S1 Zone' });
+            if (levels.support_2) mainSeries.createPriceLine({ price: levels.support_2, color: 'rgba(0, 230, 118, 0.4)', lineWidth: 2, lineStyle, title: 'S2 Zone' });
+            if (levels.resistance_1) mainSeries.createPriceLine({ price: levels.resistance_1, color: 'rgba(255, 23, 68, 0.8)', lineWidth: 2, lineStyle, title: 'R1 Zone' });
+            if (levels.resistance_2) mainSeries.createPriceLine({ price: levels.resistance_2, color: 'rgba(255, 23, 68, 0.4)', lineWidth: 2, lineStyle, title: 'R2 Zone' });
+            if (levels.pivot) mainSeries.createPriceLine({ price: levels.pivot, color: 'rgba(255, 255, 255, 0.5)', lineWidth: 1, lineStyle: 3, title: 'Pivot' }); // Dotted
+        }
+
+        // Add Trade Markers if Backtesting (Using only the first strategy for visual markers)
+        if (backtestResult && backtestResult.length > 0 && backtestResult[0].trades.length > 0) {
             try {
                 // Lightweight charts will crash if a marker is placed on a date that is not in the series data
                 const validTimes = new Set(formattedHistory.map(d => String(d.time)));
 
-                const markers: SeriesMarker<any>[] = backtestResult.trades
+                const markers: SeriesMarker<any>[] = backtestResult[0].trades
                     .filter(t => validTimes.has(String(t.date)))
                     .map(t => ({
                         time: String(t.date) as any,
@@ -196,12 +217,12 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
                 sma20Series.setData(sortedInds.filter(d => d.sma20 !== null).map(d => ({ time: d.time as any, value: d.sma20 as number })));
                 seriesRef.current['sma20'] = { chart: priceChart, handle: sma20Series };
             }
-            if (activeIndicators.includes('sma50')) {
+            if (localActiveIndicators.includes('sma50')) {
                 const sma50Series = priceChart.addSeries(LineSeries, { color: '#2962FF', lineWidth: 2, title: 'SMA 50' });
                 sma50Series.setData(sortedInds.filter(d => d.sma50 !== null).map(d => ({ time: d.time as any, value: d.sma50 as number })));
                 seriesRef.current['sma50'] = { chart: priceChart, handle: sma50Series };
             }
-            if (activeIndicators.includes('sma200')) {
+            if (localActiveIndicators.includes('sma200')) {
                 const sma200Series = priceChart.addSeries(LineSeries, { color: '#AA00FF', lineWidth: 2, title: 'SMA 200' });
                 sma200Series.setData(sortedInds.filter(d => d.sma200 !== null).map(d => ({ time: d.time as any, value: d.sma200 as number })));
                 seriesRef.current['sma200'] = { chart: priceChart, handle: sma200Series };
@@ -251,7 +272,7 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
         priceChart.timeScale().fitContent();
 
-    }, [history, indicators, backtestResult, chartType, isPositive, localActiveIndicators, hasRSI, hasMACD]);
+    }, [history, indicators, backtestResult, chartType, isPositive, localActiveIndicators, hasRSI, hasMACD, levels]);
 
     const availableIndicators = [
         { id: 'sma20', label: 'SMA 20' },
