@@ -22,3 +22,5 @@ pytest-asyncio
 httpx
 ruff
 psycopg[binary]
+duckduckgo-search
+ddgs

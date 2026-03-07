@@ -6,6 +6,8 @@ import { StatsRow } from './components/stats/StatCard'
 import { ChatPanel } from './components/chat/ChatPanel'
 import { StrategyBuilder } from './components/StrategyBuilder'
 import FundamentalHighlights from './components/FundamentalHighlights'
+import { NewsPanel } from './components/NewsPanel'
+import { FilingsPanel } from './components/FilingsPanel'
 import { useChat } from './hooks/useChat'
 import { useStockData } from './hooks/useStockData'
 import { useIndicators } from './hooks/useIndicators'
@@ -48,6 +50,10 @@ function App() {
                         fiftyTwoWeekLow={stockData?.fiftyTwoWeekLow}
                         loading={stockLoading || !stockData}
                     />
+
+                    <NewsPanel ticker={stockData?.ticker || activeTicker} />
+
+                    <FilingsPanel ticker={stockData?.ticker || activeTicker} />
 
                     <StrategyBuilder
                         ticker={stockData?.ticker || activeTicker}
