@@ -485,6 +485,121 @@ async def get_fundamental_competitors(ticker: str):
     except Exception as exc:
         return {"error": str(exc)}
 
+# ── News & Sentiment Endpoints ─────────────────────────────────
+
+@app.get("/api/news/{ticker}")
+@cached_async(ttl_seconds=3600) # 1 hour TTL
+async def get_recent_news(ticker: str):
+    """Fetches recent news articles for the ticker using DuckDuckGo search."""
+    try:
+        from ddgs import DDGS
+        import concurrent.futures
+        
+        def _fetch_news():
+            ddgs = DDGS()
+            results = ddgs.news(f"{ticker} stock news", max_results=10)
+            # Format to match the expected duckduckgo raw string output from the UI
+            # which expects `[snippet: ..., title: ..., link: ...]`
+            formatted_string = ""
+            for item in results:
+                formatted_string += f"[snippet: {item.get('body', '')}, title: {item.get('title', '')}, link: {item.get('url', '')}], "
+            return formatted_string
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            news_str = await loop.run_in_executor(executor, _fetch_news)
+            
+        return {"ticker": ticker.upper(), "news_raw": news_str}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/news/{ticker}/sentiment")
+@cached_async(ttl_seconds=3600) # 1 hour TTL
+async def get_news_sentiment(ticker: str):
+    """Fetches recent news and generates an AI sentiment summary."""
+    try:
+        from app.llm import get_llm
+        from langchain_core.messages import HumanMessage
+        from ddgs import DDGS
+        import concurrent.futures
+        
+        def _generate_sentiment():
+            ddgs = DDGS()
+            results = ddgs.news(f"{ticker} stock news", max_results=10)
+            if not results:
+                return "Failed to retrieve recent news for sentiment analysis."
+                
+            formatted_news = ""
+            for item in results:
+                formatted_news += f"- {item.get('title', '')}: {item.get('body', '')}\n"
+                
+            llm = get_llm(temperature=0.3)
+            prompt = (
+                f"You are an expert financial sentiment analyst. Read the following recent news snippets for {ticker} "
+                f"and provide a concise, 2-3 sentence summary of the overarching market sentiment (bullish, bearish, or neutral) "
+                f"and the primary catalysts driving it.\n\nNews Data:\n{formatted_news}\n\nSentiment Summary:"
+            )
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            sentiment_summary = await loop.run_in_executor(executor, _generate_sentiment)
+            
+        return {"ticker": ticker.upper(), "sentiment_summary": sentiment_summary}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+# ── SEC Filings Endpoints ─────────────────────────────────────
+
+@app.get("/api/filings/{ticker}")
+@cached_async(ttl_seconds=86400) # 1 day TTL
+async def get_recent_filings(ticker: str):
+    """Fetches recent SEC filings metadata."""
+    try:
+        from app.filings import get_recent_filings_metadata
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            filings_meta = await loop.run_in_executor(executor, get_recent_filings_metadata, ticker, 10)
+            
+        return {"ticker": ticker.upper(), "filings": filings_meta}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/filings/{ticker}/mda")
+@cached_async(ttl_seconds=604800) # 7 days TTL
+async def get_filings_mda(ticker: str):
+    """Extracts and summarizes MD&A from the latest 10-K."""
+    try:
+        from app.filings import generate_mda_summary
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            mda_summary = await loop.run_in_executor(executor, generate_mda_summary, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": mda_summary}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@app.get("/api/filings/{ticker}/risks")
+@cached_async(ttl_seconds=604800) # 7 days TTL
+async def get_filings_risks(ticker: str):
+    """Extracts and summarizes Risk Factors from the latest 10-K."""
+    try:
+        from app.filings import generate_risk_summary
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            risk_summary = await loop.run_in_executor(executor, generate_risk_summary, ticker)
+            
+        return {"ticker": ticker.upper(), "markdown": risk_summary}
+    except Exception as exc:
+        return {"error": str(exc)}
+
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
