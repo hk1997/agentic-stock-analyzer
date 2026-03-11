@@ -15,7 +15,7 @@ from app.cache import get_cache, set_cache, cached_async, close_valkey_pool
 from app.tasks import update_active_tickers_prices, log_user_query, trigger_jit_fundamentals, _ingest_price_history
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, BackgroundTasks
+from fastapi import FastAPI, Query, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -684,6 +684,721 @@ async def get_filings_risks(ticker: str):
         return {"ticker": ticker.upper(), "markdown": risk_summary}
     except Exception as exc:
         return {"error": str(exc)}
+
+# ── Portfolio Endpoints ────────────────────────────────────────
+
+class HoldingRequest(BaseModel):
+    ticker: str
+    shares: float
+    avg_cost_basis: float
+
+@app.get("/api/portfolio")
+async def list_portfolios():
+    """List all portfolios. Creates a default one if none exist."""
+    from app.database import async_session
+    from app.models import Portfolio
+    from sqlalchemy import select
+
+    async with async_session() as session:
+        result = await session.execute(select(Portfolio).order_by(Portfolio.id))
+        portfolios = result.scalars().all()
+
+        if not portfolios:
+            default = Portfolio(name="My Portfolio")
+            session.add(default)
+            await session.commit()
+            await session.refresh(default)
+            portfolios = [default]
+
+        return [{"id": p.id, "name": p.name, "created_at": str(p.created_at)} for p in portfolios]
+
+
+@app.get("/api/portfolio/{portfolio_id}")
+async def get_portfolio(portfolio_id: int):
+    """Get a portfolio with all holdings, enriched with live prices."""
+    import yfinance as yf
+    from app.database import async_session
+    from app.models import Portfolio, PortfolioHolding
+    from sqlalchemy import select
+
+    async with async_session() as session:
+        # Fetch portfolio
+        port = await session.get(Portfolio, portfolio_id)
+        if not port:
+            return {"error": f"Portfolio {portfolio_id} not found"}
+
+        # Fetch holdings
+        result = await session.execute(
+            select(PortfolioHolding)
+            .where(PortfolioHolding.portfolio_id == portfolio_id)
+            .order_by(PortfolioHolding.added_at)
+        )
+        holdings = result.scalars().all()
+
+        # Enrich with live prices
+        enriched = []
+        total_value = 0.0
+        total_cost = 0.0
+
+        for h in holdings:
+            try:
+                # Check Valkey cache first
+                cache_key = f"live_price:{h.ticker}"
+                cached_price = await get_cache(cache_key)
+                if cached_price:
+                    current_price = float(cached_price)
+                else:
+                    import concurrent.futures
+                    def _fetch_info(ticker=h.ticker):
+                        return yf.Ticker(ticker).info
+                    loop = asyncio.get_running_loop()
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        info = await loop.run_in_executor(pool, _fetch_info)
+                    current_price = (
+                        info.get("currentPrice")
+                        or info.get("regularMarketPrice")
+                        or info.get("previousClose")
+                        or info.get("regularMarketPreviousClose")
+                        or 0
+                    )
+                    sector = info.get("sector", "Unknown")
+                    name = info.get("shortName", h.ticker)
+                    if current_price:
+                        await set_cache(cache_key, str(current_price), ttl_seconds=300)
+                    await set_cache(f"sector:{h.ticker}", sector, ttl_seconds=86400)
+                    await set_cache(f"name:{h.ticker}", name, ttl_seconds=86400)
+            except Exception as exc:
+                import traceback
+                print(f"[portfolio] Price fetch error for {h.ticker}: {exc}")
+                traceback.print_exc()
+                current_price = 0
+
+            current_value = h.shares * current_price
+            cost_basis_total = h.shares * h.avg_cost_basis
+            unrealized_pnl = current_value - cost_basis_total
+            unrealized_pnl_pct = (unrealized_pnl / cost_basis_total * 100) if cost_basis_total > 0 else 0
+
+            total_value += current_value
+            total_cost += cost_basis_total
+
+            # Get cached sector/name
+            sector = await get_cache(f"sector:{h.ticker}") or "Unknown"
+            name = await get_cache(f"name:{h.ticker}") or h.ticker
+
+            enriched.append({
+                "id": h.id,
+                "ticker": h.ticker,
+                "name": name,
+                "sector": sector,
+                "shares": h.shares,
+                "avg_cost_basis": round(h.avg_cost_basis, 2),
+                "current_price": round(current_price, 2),
+                "current_value": round(current_value, 2),
+                "cost_basis_total": round(cost_basis_total, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "unrealized_pnl_pct": round(unrealized_pnl_pct, 2),
+            })
+
+        # Compute weight percentages
+        for item in enriched:
+            item["weight_pct"] = round((item["current_value"] / total_value * 100) if total_value > 0 else 0, 2)
+
+        total_pnl = total_value - total_cost
+        total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
+
+        # Get last updated date from transactions
+        from app.models import Transaction
+        last_txn_result = await session.execute(
+            select(Transaction.executed_at)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .order_by(Transaction.executed_at.desc())
+            .limit(1)
+        )
+        last_txn_date = last_txn_result.scalar()
+
+        return {
+            "id": port.id,
+            "name": port.name,
+            "total_value": round(total_value, 2),
+            "total_cost": round(total_cost, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_pct": round(total_pnl_pct, 2),
+            "num_holdings": len(enriched),
+            "last_updated": str(last_txn_date)[:10] if last_txn_date else None,
+            "holdings": enriched,
+        }
+
+
+@app.get("/api/portfolio/{portfolio_id}/benchmarks")
+async def get_portfolio_benchmarks(portfolio_id: int):
+    """Compute portfolio % returns vs S&P 500 / NASDAQ, plus beta, alpha, Sharpe.
+    Includes realized P&L and dividends in the total return calculation."""
+    import yfinance as yf
+    import pandas as pd
+    import numpy as np
+    import concurrent.futures
+    from app.database import async_session
+    from app.models import Portfolio, PortfolioHolding, Transaction
+    from sqlalchemy import select, func as sqlfunc
+    from datetime import datetime, timedelta
+
+    async with async_session() as session:
+        port = await session.get(Portfolio, portfolio_id)
+        if not port:
+            return {"error": f"Portfolio {portfolio_id} not found"}
+
+        # Get holdings
+        result = await session.execute(
+            select(PortfolioHolding)
+            .where(PortfolioHolding.portfolio_id == portfolio_id)
+        )
+        holdings = result.scalars().all()
+        if not holdings:
+            return {"error": "No holdings in portfolio"}
+
+        # Get earliest transaction date (inception)
+        txn_result = await session.execute(
+            select(Transaction.executed_at)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .order_by(Transaction.executed_at.asc())
+            .limit(1)
+        )
+        inception_date = txn_result.scalar()
+
+        # ── Compute realized P&L and dividends from transactions ──
+        all_txns_result = await session.execute(
+            select(Transaction)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .order_by(Transaction.executed_at.asc())
+        )
+        all_txns = all_txns_result.scalars().all()
+
+        total_realized_pnl = 0.0  # Profit/loss from sells (converted to USD)
+        total_dividends = 0.0     # Dividend income (converted to USD)
+
+        for t in all_txns:
+            action = (t.action or "").lower()
+            fx = t.exchange_rate or 1.0  # T212 exchange rate (GBP -> USD for trades, USD -> GBP for divs)
+            
+            if "sell" in action and "split" not in action:
+                total_realized_pnl += (t.result_in_local or 0) * fx
+            elif "dividend" in action:
+                total_dividends += (abs(t.total_in_local or 0) / fx) if fx > 0 else 0
+
+    if not inception_date:
+        return {"error": "No transactions found"}
+
+    inception_str = inception_date.strftime("%Y-%m-%d")
+    today = datetime.now()
+
+    # Total Invested is the cost basis of currently held shares
+    total_invested = sum(h.shares * h.avg_cost_basis for h in holdings if h.shares > 0)
+
+    # Build ticker list + weights
+    tickers = [h.ticker for h in holdings if h.shares > 0]
+    if not tickers:
+        return {"error": "No active holdings"}
+
+    # Download all price data in one batch
+    benchmark_tickers = ["^GSPC", "^IXIC"]
+    all_tickers = tickers + benchmark_tickers
+
+    def _download():
+        data = yf.download(
+            all_tickers,
+            start=inception_str,
+            end=(today + timedelta(days=1)).strftime("%Y-%m-%d"),
+            auto_adjust=True,
+            progress=False,
+        )
+        if data.empty:
+            return pd.DataFrame()
+        # For single ticker, yfinance returns flat columns
+        if len(all_tickers) == 1:
+            return data
+        return data["Close"] if "Close" in data.columns.get_level_values(0) else data
+
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="yf_bench") as pool:
+        close_df = await loop.run_in_executor(pool, _download)
+
+    if close_df.empty:
+        return {"error": "Could not fetch price data"}
+
+    # Flatten multi-index columns if needed
+    if isinstance(close_df.columns, pd.MultiIndex):
+        close_df.columns = close_df.columns.get_level_values(-1)
+
+    # Compute daily returns
+    returns_df = close_df.pct_change().dropna()
+    if returns_df.empty:
+        return {"error": "Insufficient data for returns"}
+
+    # Compute current portfolio value from latest prices
+    current_value = 0.0
+    weights = {}
+    for h in holdings:
+        if h.shares > 0 and h.ticker in close_df.columns:
+            price = close_df[h.ticker].iloc[-1]
+            if not pd.isna(price):
+                val = h.shares * price
+                current_value += val
+                weights[h.ticker] = val  # raw value, will normalize below
+
+    # Normalize weights
+    if current_value > 0:
+        weights = {k: v / current_value for k, v in weights.items()}
+
+    # ── Total Portfolio Return (including realized + dividends) ──
+    # Total return = (Unrealized P&L + Realized P&L + Dividends) / Total Invested
+    total_return_pct = None
+    unrealized_pnl = current_value - total_invested
+    if total_invested > 0:
+        total_return_pct = round(
+            ((unrealized_pnl + total_realized_pnl + total_dividends) / total_invested) * 100, 2
+        )
+
+    # Weighted portfolio daily returns (for time-series comparison)
+    portfolio_daily = pd.Series(0.0, index=returns_df.index)
+    for ticker, weight in weights.items():
+        if ticker in returns_df.columns:
+            portfolio_daily += weight * returns_df[ticker].fillna(0)
+
+    # Compute cumulative returns at various periods
+    def cum_return(series, start_date=None):
+        if start_date:
+            series = series[series.index >= pd.Timestamp(start_date)]
+        if series.empty:
+            return None
+        return round(float(((1 + series).cumprod().iloc[-1] - 1) * 100), 2)
+
+    periods = {
+        "1m": (today - timedelta(days=30)).strftime("%Y-%m-%d"),
+        "3m": (today - timedelta(days=90)).strftime("%Y-%m-%d"),
+        "6m": (today - timedelta(days=180)).strftime("%Y-%m-%d"),
+        "ytd": f"{today.year}-01-01",
+        "1y": (today - timedelta(days=365)).strftime("%Y-%m-%d"),
+        "since_inception": inception_str,
+    }
+
+    portfolio_returns = {}
+    for period_key, start in periods.items():
+        portfolio_returns[period_key] = cum_return(portfolio_daily, start)
+
+    # Override since_inception with the total return that includes realized + dividends
+    if total_return_pct is not None:
+        portfolio_returns["since_inception"] = total_return_pct
+
+    benchmarks = []
+    for bm_ticker, bm_name in [("^GSPC", "S&P 500"), ("^IXIC", "NASDAQ")]:
+        if bm_ticker not in returns_df.columns:
+            continue
+        bm_returns = {}
+        for period_key, start in periods.items():
+            bm_returns[period_key] = cum_return(returns_df[bm_ticker], start)
+        benchmarks.append({
+            "name": bm_name,
+            "ticker": bm_ticker,
+            "returns": bm_returns,
+        })
+
+    # Beta, Alpha, Sharpe (annualized, using S&P 500 as market)
+    beta = None
+    alpha = None
+    sharpe = None
+    risk_free_rate = 0.04  # ~4% annual treasury rate
+
+    if "^GSPC" in returns_df.columns:
+        market_returns = returns_df["^GSPC"].fillna(0)
+        # Align
+        aligned = pd.DataFrame({"port": portfolio_daily, "mkt": market_returns}).dropna()
+        if len(aligned) > 30:
+            cov_matrix = np.cov(aligned["port"], aligned["mkt"])
+            market_var = cov_matrix[1, 1]
+            if market_var > 0:
+                beta = round(float(cov_matrix[0, 1] / market_var), 2)
+
+            # Annualized returns
+            trading_days = len(aligned)
+            port_annual = float(((1 + aligned["port"]).cumprod().iloc[-1]) ** (252 / trading_days) - 1)
+            mkt_annual = float(((1 + aligned["mkt"]).cumprod().iloc[-1]) ** (252 / trading_days) - 1)
+
+            # Alpha (Jensen's)
+            if beta is not None:
+                alpha = round((port_annual - (risk_free_rate + beta * (mkt_annual - risk_free_rate))) * 100, 2)
+
+            # Sharpe
+            port_std_annual = float(aligned["port"].std() * np.sqrt(252))
+            if port_std_annual > 0:
+                sharpe = round((port_annual - risk_free_rate) / port_std_annual, 2)
+
+    return {
+        "portfolio_return": portfolio_returns,
+        "benchmarks": benchmarks,
+        "beta": beta,
+        "alpha": alpha,
+        "sharpe_ratio": sharpe,
+        "inception_date": inception_str,
+        # Return breakdown
+        "total_invested": round(total_invested, 2),
+        "current_value": round(current_value, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "realized_pnl": round(total_realized_pnl, 2),
+        "dividend_income": round(total_dividends, 2),
+        "total_return_pct": total_return_pct,
+    }
+
+
+@app.post("/api/portfolio/{portfolio_id}/holdings")
+async def add_holding(portfolio_id: int, request: HoldingRequest):
+    """Add a new holding to a portfolio."""
+    from app.database import async_session
+    from app.models import Portfolio, PortfolioHolding
+
+    async with async_session() as session:
+        port = await session.get(Portfolio, portfolio_id)
+        if not port:
+            return {"error": f"Portfolio {portfolio_id} not found"}
+
+        holding = PortfolioHolding(
+            portfolio_id=portfolio_id,
+            ticker=request.ticker.upper(),
+            shares=request.shares,
+            avg_cost_basis=request.avg_cost_basis,
+        )
+        session.add(holding)
+        await session.commit()
+        await session.refresh(holding)
+        return {"id": holding.id, "ticker": holding.ticker, "shares": holding.shares, "avg_cost_basis": holding.avg_cost_basis}
+
+
+@app.put("/api/portfolio/{portfolio_id}/holdings/{holding_id}")
+async def update_holding(portfolio_id: int, holding_id: int, request: HoldingRequest):
+    """Update an existing holding's shares or cost basis."""
+    from app.database import async_session
+    from app.models import PortfolioHolding
+
+    async with async_session() as session:
+        holding = await session.get(PortfolioHolding, holding_id)
+        if not holding or holding.portfolio_id != portfolio_id:
+            return {"error": "Holding not found"}
+
+        holding.ticker = request.ticker.upper()
+        holding.shares = request.shares
+        holding.avg_cost_basis = request.avg_cost_basis
+        await session.commit()
+        return {"id": holding.id, "ticker": holding.ticker, "shares": holding.shares, "avg_cost_basis": holding.avg_cost_basis}
+
+
+@app.delete("/api/portfolio/{portfolio_id}/holdings/{holding_id}")
+async def delete_holding(portfolio_id: int, holding_id: int):
+    """Remove a holding from a portfolio."""
+    from app.database import async_session
+    from app.models import PortfolioHolding
+
+    async with async_session() as session:
+        holding = await session.get(PortfolioHolding, holding_id)
+        if not holding or holding.portfolio_id != portfolio_id:
+            return {"error": "Holding not found"}
+
+        await session.delete(holding)
+        await session.commit()
+        return {"deleted": True, "id": holding_id}
+
+
+
+# ── Trading 212 CSV Import ─────────────────────────────────────
+
+@app.post("/api/portfolio/{portfolio_id}/import/csv")
+async def import_csv(portfolio_id: int, file: UploadFile = File(...)):
+    """
+    Import transactions from a Trading 212 CSV export.
+    Stores every transaction row (buy/sell/dividend) with dedup by external_id.
+    Recomputes holdings from the full transaction log.
+    """
+    from app.database import async_session
+    from app.models import Portfolio, PortfolioHolding, Transaction
+    from app.t212_import import parse_t212_transactions, compute_holdings
+    from sqlalchemy import select, delete
+
+    # Validate file type
+    if file.filename and not file.filename.lower().endswith('.csv'):
+        return {"error": "Please upload a CSV file"}
+
+    try:
+        raw_bytes = await file.read()
+        file_content = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"error": "Could not decode file. Please ensure it is a UTF-8 CSV."}
+
+    try:
+        transactions = parse_t212_transactions(file_content)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    if not transactions:
+        return {"error": "No transactions found in the CSV file."}
+
+    async with async_session() as session:
+        # Verify portfolio exists
+        port = await session.get(Portfolio, portfolio_id)
+        if not port:
+            return {"error": f"Portfolio {portfolio_id} not found"}
+
+        # Get existing external_ids for this portfolio to skip duplicates
+        result = await session.execute(
+            select(Transaction.external_id)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .where(Transaction.external_id.isnot(None))
+        )
+        existing_ids = {row[0] for row in result.fetchall()}
+
+        new_count = 0
+        skipped_count = 0
+
+        for txn in transactions:
+            ext_id = txn.get("external_id")
+            # Skip if we've already imported this transaction
+            if ext_id and ext_id in existing_ids:
+                skipped_count += 1
+                continue
+
+            record = Transaction(
+                portfolio_id=portfolio_id,
+                external_id=ext_id,
+                action=txn["action"],
+                ticker=txn["ticker"],
+                name=txn.get("name", ""),
+                isin=txn.get("isin", ""),
+                shares=txn["shares"],
+                price_per_share=txn["price_per_share"],
+                currency=txn.get("currency", ""),
+                exchange_rate=txn.get("exchange_rate"),
+                total_in_local=txn.get("total_in_local"),
+                result_in_local=txn.get("result_in_local"),
+                executed_at=txn["executed_at"],
+            )
+            session.add(record)
+            if ext_id:
+                existing_ids.add(ext_id)
+            new_count += 1
+
+        await session.flush()
+
+        # Recompute holdings from ALL transactions for this portfolio
+        all_txns_result = await session.execute(
+            select(Transaction)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .order_by(Transaction.executed_at)
+        )
+        all_txns = [
+            {
+                "action": t.action,
+                "ticker": t.ticker,
+                "shares": t.shares,
+                "price_per_share": t.price_per_share,
+                "name": t.name,
+            }
+            for t in all_txns_result.scalars().all()
+        ]
+
+        computed = compute_holdings(all_txns)
+
+        # Clear existing holdings and rewrite
+        await session.execute(
+            delete(PortfolioHolding)
+            .where(PortfolioHolding.portfolio_id == portfolio_id)
+        )
+
+        for h in computed:
+            if h["shares"] > 0:
+                session.add(PortfolioHolding(
+                    portfolio_id=portfolio_id,
+                    ticker=h["ticker"],
+                    shares=h["shares"],
+                    avg_cost_basis=h["avg_cost_basis"],
+                ))
+
+        await session.commit()
+
+    return {
+        "new_transactions": new_count,
+        "skipped": skipped_count,
+        "total_in_csv": len(transactions),
+        "holdings_count": len([h for h in computed if h["shares"] > 0]),
+        "total_realized_pnl": round(sum(h["realized_pnl"] for h in computed), 2),
+    }
+
+
+@app.get("/api/portfolio/{portfolio_id}/transactions")
+async def get_transactions(
+    portfolio_id: int,
+    ticker: str = Query(default=None, description="Filter by ticker"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """Get paginated transaction history for a portfolio."""
+    from app.database import async_session
+    from app.models import Transaction
+    from sqlalchemy import select, func as sqlfunc
+
+    async with async_session() as session:
+        query = (
+            select(Transaction)
+            .where(Transaction.portfolio_id == portfolio_id)
+        )
+        count_query = (
+            select(sqlfunc.count(Transaction.id))
+            .where(Transaction.portfolio_id == portfolio_id)
+        )
+
+        if ticker:
+            query = query.where(Transaction.ticker == ticker.upper())
+            count_query = count_query.where(Transaction.ticker == ticker.upper())
+
+        # Get total count
+        total = (await session.execute(count_query)).scalar() or 0
+
+        # Get page of results
+        query = query.order_by(Transaction.executed_at.desc()).limit(limit).offset(offset)
+        result = await session.execute(query)
+        txns = result.scalars().all()
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "transactions": [
+                {
+                    "id": t.id,
+                    "external_id": t.external_id,
+                    "action": t.action,
+                    "ticker": t.ticker,
+                    "name": t.name,
+                    "shares": t.shares,
+                    "price_per_share": round(t.price_per_share, 4),
+                    "currency": t.currency,
+                    "exchange_rate": round(t.exchange_rate, 6) if t.exchange_rate else None,
+                    "total_in_local": round(t.total_in_local, 2) if t.total_in_local else None,
+                    "result_in_local": round(t.result_in_local, 2) if t.result_in_local else None,
+                    "executed_at": str(t.executed_at),
+                }
+                for t in txns
+            ],
+        }
+
+
+@app.get("/api/portfolio/{portfolio_id}/realized")
+async def get_realized_summary(portfolio_id: int):
+    """
+    Get aggregated realized P&L from sells and dividend income.
+    Returns per-ticker breakdowns and totals.
+    """
+    from app.database import async_session
+    from app.models import Transaction
+    from sqlalchemy import select
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Transaction)
+            .where(Transaction.portfolio_id == portfolio_id)
+            .order_by(Transaction.executed_at)
+        )
+        txns = result.scalars().all()
+
+        # ── Realized P&L from sells ──────────────────────────
+        sell_actions = {'market sell', 'limit sell'}
+        sells_by_ticker: dict = {}
+
+        for t in txns:
+            if t.action.lower() not in sell_actions:
+                continue
+            ticker = t.ticker
+            if ticker not in sells_by_ticker:
+                sells_by_ticker[ticker] = {
+                    "ticker": ticker,
+                    "name": t.name or ticker,
+                    "total_proceeds": 0.0,
+                    "total_realized_pnl": 0.0,
+                    "total_shares_sold": 0.0,
+                    "num_trades": 0,
+                    "trades": [],
+                }
+            entry = sells_by_ticker[ticker]
+            proceeds_local = t.total_in_local or 0
+            result_local = t.result_in_local or 0
+            entry["total_proceeds"] += proceeds_local
+            entry["total_realized_pnl"] += result_local
+            entry["total_shares_sold"] += t.shares
+            entry["num_trades"] += 1
+            entry["trades"].append({
+                "date": str(t.executed_at)[:10] if t.executed_at else "",
+                "shares": round(t.shares, 4),
+                "price": round(t.price_per_share, 2),
+                "proceeds": round(proceeds_local, 2),
+                "pnl": round(result_local, 2),
+            })
+
+        realized_list = []
+        for data in sorted(sells_by_ticker.values(), key=lambda x: -abs(x["total_realized_pnl"])):
+            realized_list.append({
+                "ticker": data["ticker"],
+                "name": data["name"],
+                "total_proceeds": round(data["total_proceeds"], 2),
+                "total_realized_pnl": round(data["total_realized_pnl"], 2),
+                "total_shares_sold": round(data["total_shares_sold"], 4),
+                "num_trades": data["num_trades"],
+                "trades": data["trades"],
+            })
+
+        # ── Dividend income ──────────────────────────────────
+        dividends_by_ticker: dict = {}
+
+        for t in txns:
+            if not t.action.lower().startswith("dividend"):
+                continue
+            ticker = t.ticker
+            if ticker not in dividends_by_ticker:
+                dividends_by_ticker[ticker] = {
+                    "ticker": ticker,
+                    "name": t.name or ticker,
+                    "total_income": 0.0,
+                    "total_withholding_tax": 0.0,
+                    "num_payments": 0,
+                    "payments": [],
+                }
+            entry = dividends_by_ticker[ticker]
+            income_local = t.total_in_local or 0
+            entry["total_income"] += income_local
+            entry["num_payments"] += 1
+            entry["payments"].append({
+                "date": str(t.executed_at)[:10] if t.executed_at else "",
+                "shares": round(t.shares, 4),
+                "per_share": round(t.price_per_share, 6),
+                "income": round(income_local, 2),
+            })
+
+        dividend_list = []
+        for data in sorted(dividends_by_ticker.values(), key=lambda x: -x["total_income"]):
+            dividend_list.append({
+                "ticker": data["ticker"],
+                "name": data["name"],
+                "total_income": round(data["total_income"], 2),
+                "num_payments": data["num_payments"],
+                "payments": data["payments"],
+            })
+
+        total_realized = round(sum(s["total_realized_pnl"] for s in realized_list), 2)
+        total_dividends = round(sum(d["total_income"] for d in dividend_list), 2)
+
+        return {
+            "total_realized_pnl": total_realized,
+            "total_dividend_income": total_dividends,
+            "total_income": round(total_realized + total_dividends, 2),
+            "realized": realized_list,
+            "dividends": dividend_list,
+        }
+
 
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":

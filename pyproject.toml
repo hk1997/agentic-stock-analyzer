@@ -45,6 +45,7 @@ psycopg2-binary = "^2.9.11"
 langgraph-checkpoint-postgres = "^3.0.4"
 psycopg = {extras = ["binary"], version = "^3.3.3"}
 ddgs = "^9.11.2"
+python-multipart = "^0.0.22"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"
