@@ -28,8 +28,26 @@ export function Sidebar() {
                 >
                     <DollarSign size={20} />
                 </button>
-                <button className="sidebar__btn" title="Analysis">
+                <button
+                    className={`sidebar__btn ${isActive('/analysis') ? 'sidebar__btn--active' : ''}`}
+                    title="Analysis"
+                    onClick={() => navigate('/analysis')}
+                >
                     <BarChart3 size={20} />
+                </button>
+                <button
+                    className={`sidebar__btn ${isActive('/expenses') ? 'sidebar__btn--active' : ''}`}
+                    title="Expenses"
+                    onClick={() => navigate('/expenses')}
+                >
+                    <DollarSign size={20} />
+                </button>
+                <button
+                    className={`sidebar__btn ${isActive('/net-worth') ? 'sidebar__btn--active' : ''}`}
+                    title="Net Worth"
+                    onClick={() => navigate('/net-worth')}
+                >
+                    <Activity size={20} />
                 </button>
             </nav>
 

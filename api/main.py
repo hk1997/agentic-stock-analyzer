@@ -13,6 +13,7 @@ from typing import AsyncGenerator
 
 from app.cache import get_cache, set_cache, cached_async, close_valkey_pool
 from app.tasks import update_active_tickers_prices, log_user_query, trigger_jit_fundamentals, _ingest_price_history
+from app.email_service import run_daily_job
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, BackgroundTasks, UploadFile, File
@@ -21,6 +22,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
+
+from app.models import User
+from api.routes.auth import get_current_user
+from typing import Annotated
+from fastapi import Depends
 
 # Ensure root project dir is on sys.path so `app.graph` resolves
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,10 +41,36 @@ else:
 # ── App Setup ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: Initialize Database Tables
+    from app.models import Base
+    from app.database import engine
+    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.execute(text("ALTER TABLE portfolios ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"))
+            except Exception:
+                pass # Column might already exist
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+
     # Startup: Kick off lightweight background data refresh for recently active tickers
     asyncio.create_task(update_active_tickers_prices())
+    
+    # Initialize APScheduler for daily email job
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    scheduler = AsyncIOScheduler()
+    
+    # Run at 8:00 AM UTC daily
+    # Can configure via env var if needed, default to daily 8am
+    scheduler.add_job(run_daily_job, 'cron', hour=8, minute=0)
+    scheduler.start()
+    
     yield
+    
     # Shutdown
+    scheduler.shutdown(wait=False)
     await close_valkey_pool()
 
 app = FastAPI(title="Agentic Stock Analyzer API", version="0.2.0", lifespan=lifespan)
@@ -50,6 +82,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from api.routes import auth, finance
+app.include_router(auth.router)
+app.include_router(finance.router)
 
 # Static files (vanilla HTML fallback)
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -693,18 +729,22 @@ class HoldingRequest(BaseModel):
     avg_cost_basis: float
 
 @app.get("/api/portfolio")
-async def list_portfolios():
-    """List all portfolios. Creates a default one if none exist."""
+async def list_portfolios(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """List all portfolios for the current user. Creates a default one if none exist."""
     from app.database import async_session
     from app.models import Portfolio
     from sqlalchemy import select
 
     async with async_session() as session:
-        result = await session.execute(select(Portfolio).order_by(Portfolio.id))
+        result = await session.execute(
+            select(Portfolio).where(Portfolio.owner_id == current_user.id).order_by(Portfolio.id)
+        )
         portfolios = result.scalars().all()
 
         if not portfolios:
-            default = Portfolio(name="My Portfolio")
+            default = Portfolio(name="My Portfolio", owner_id=current_user.id)
             session.add(default)
             await session.commit()
             await session.refresh(default)
@@ -1399,6 +1439,28 @@ async def get_realized_summary(portfolio_id: int):
             "dividends": dividend_list,
         }
 
+
+@app.get("/api/dev/init-db")
+async def dev_init_db():
+    """Temporary route to initialize new tables and run migrations"""
+    from app.models import Base
+    from app.database import engine
+    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
+            # Create new tables
+            await conn.run_sync(Base.metadata.create_all)
+            
+            # Manually add owner_id to portfolios if it doesn't exist
+            try:
+                await conn.execute(text("ALTER TABLE portfolios ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"))
+            except Exception as e:
+                # Column might already exist
+                pass
+                
+        return {"status": "success", "message": "Database initialized and migrated."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # ── Main ───────────────────────────────────────────────────
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { usePortfolio } from '../../hooks/usePortfolio'
+import { apiFetch } from '../../utils/api'
 import type { Holding } from '../../hooks/usePortfolio'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -125,9 +125,92 @@ function toggleSort<K extends string>(prev: SortState<K> | null, key: K): SortSt
 const COLORS = ['#00e676', '#2979ff', '#ff9100', '#e040fb', '#00e5ff', '#ffea00', '#ff1744', '#76ff03', '#d500f9', '#1de9b6']
 
 export function PortfolioPage() {
-    const { portfolio, loading, error, addHolding, updateHolding, removeHolding, importCsv, refresh } = usePortfolio()
+    // Portfolio view state
+    const [viewMode, setViewMode] = useState<'personal' | 'unified'>('personal')
+    const [portfolio, setPortfolio] = useState<any>(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    const fetchPortfolio = useCallback(async () => {
+        setLoading(true)
+        setError(null)
+        try {
+            if (viewMode === 'unified') {
+                const data = await apiFetch('/api/finance/unified-portfolio')
+                setPortfolio({
+                    id: 'unified',
+                    name: 'Unified Portfolio',
+                    total_value: data.total_value,
+                    total_cost: data.total_cost,
+                    total_pnl: data.total_pnl,
+                    total_pnl_pct: data.total_cost > 0 ? (data.total_pnl / data.total_cost) * 100 : 0,
+                    num_holdings: data.holdings.length,
+                    holdings: data.holdings,
+                })
+            } else {
+                // Fetch default personal portfolio
+                const list = await apiFetch('/api/portfolio')
+                if (list.length > 0) {
+                    const data = await apiFetch(`/api/portfolio/${list[0].id}`)
+                    setPortfolio(data)
+                } else {
+                    setPortfolio(null)
+                }
+            }
+        } catch (err: any) {
+            setError(err.message || 'Failed to load portfolio')
+        } finally {
+            setLoading(false)
+        }
+    }, [viewMode])
+
+    useEffect(() => {
+        fetchPortfolio()
+    }, [fetchPortfolio])
+
+    // Holding mutations for personal view
+    const addHolding = async (ticker: string, shares: number, avgCostBasis: number) => {
+        if (viewMode === 'unified' || !portfolio?.id) return
+        await apiFetch(`/api/portfolio/${portfolio.id}/holdings`, {
+            method: 'POST',
+            body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
+        })
+        fetchPortfolio()
+    }
+
+    const updateHolding = async (holdingId: number, ticker: string, shares: number, avgCostBasis: number) => {
+        if (viewMode === 'unified' || !portfolio?.id) return
+        await apiFetch(`/api/portfolio/${portfolio.id}/holdings/${holdingId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
+        })
+        fetchPortfolio()
+    }
+
+    const removeHolding = async (holdingId: number) => {
+        if (viewMode === 'unified' || !portfolio?.id) return
+        await apiFetch(`/api/portfolio/${portfolio.id}/holdings/${holdingId}`, { method: 'DELETE' })
+        fetchPortfolio()
+    }
+
+    const importCsv = async (file: File) => {
+        if (viewMode === 'unified' || !portfolio?.id) return null
+        const formData = new FormData()
+        formData.append('file', file)
+        try {
+            const data = await apiFetch(`/api/portfolio/${portfolio.id}/import/csv`, {
+                method: 'POST',
+                body: formData,
+            })
+            if (!data.error) fetchPortfolio()
+            return data
+        } catch (e: any) {
+            return { error: e.message || 'Server error' }
+        }
+    }
+
     const [showAddModal, setShowAddModal] = useState(false)
-    const [editHolding, setEditHolding] = useState<Holding | null>(null)
+    const [editHolding, setEditHolding] = useState<any>(null)
     const [formTicker, setFormTicker] = useState('')
     const [formShares, setFormShares] = useState('')
     const [formCost, setFormCost] = useState('')
@@ -182,11 +265,8 @@ export function PortfolioPage() {
         if (!pid) return
         setRealizedLoading(true)
         try {
-            const res = await fetch(`/api/portfolio/${pid}/realized`)
-            if (res.ok) {
-                const data = await res.json()
-                setRealizedData(data)
-            }
+            const data = await apiFetch(`/api/portfolio/${pid}/realized`)
+            setRealizedData(data)
         } catch { /* ignore */ }
         setRealizedLoading(false)
     }, [portfolio?.id])
@@ -202,8 +282,7 @@ export function PortfolioPage() {
         if (!portfolio?.id) return
         setBenchmarkLoading(true)
         try {
-            const res = await fetch(`/api/portfolio/${portfolio.id}/benchmarks`)
-            const data = await res.json()
+            const data = await apiFetch(`/api/portfolio/${portfolio.id}/benchmarks`)
             if (!data.error) setBenchmarkData(data)
         } catch { /* ignore */ } finally {
             setBenchmarkLoading(false)
@@ -295,15 +374,15 @@ export function PortfolioPage() {
 
     // Sector aggregation
     const sectorData = portfolio ? Object.entries(
-        portfolio.holdings.reduce<Record<string, number>>((acc, h) => {
+        (portfolio.holdings as any[]).reduce<Record<string, number>>((acc, h: any) => {
             const s = h.sector || 'Unknown'
             acc[s] = (acc[s] || 0) + h.current_value
             return acc
         }, {})
-    ).map(([name, value]) => ({ name, value: Math.round(value) })) : []
+    ).map(([name, value]) => ({ name, value: Math.round(value as number) })) : []
 
     const allocationData = portfolio
-        ? portfolio.holdings.map(h => ({ name: h.ticker, value: Math.round(h.current_value) }))
+        ? (portfolio.holdings as any[]).map((h: any) => ({ name: h.ticker, value: Math.round(h.current_value) }))
         : []
 
     if (loading && !portfolio) {
@@ -327,7 +406,25 @@ export function PortfolioPage() {
                     <div className="portfolio-header__left">
                         <Briefcase size={28} />
                         <div>
-                            <h1>{portfolio?.name || 'My Portfolio'}</h1>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <h1>{portfolio?.name || 'My Portfolio'}</h1>
+                                <div style={{ display: 'flex', background: 'var(--bg-card)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                    <button 
+                                        className={`btn ${viewMode === 'personal' ? 'btn--primary' : 'btn--secondary'}`} 
+                                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', border: 'none' }}
+                                        onClick={() => setViewMode('personal')}
+                                    >
+                                        Personal
+                                    </button>
+                                    <button 
+                                        className={`btn ${viewMode === 'unified' ? 'btn--primary' : 'btn--secondary'}`} 
+                                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', border: 'none' }}
+                                        onClick={() => setViewMode('unified')}
+                                    >
+                                        Unified
+                                    </button>
+                                </div>
+                            </div>
                             <p className="portfolio-header__subtitle">
                                 {portfolio?.num_holdings || 0} holdings
                                 {(portfolio as any)?.last_updated && (
@@ -337,15 +434,19 @@ export function PortfolioPage() {
                         </div>
                     </div>
                     <div className="portfolio-header__actions">
-                        <button className="btn btn--secondary" onClick={refresh}>
+                        <button className="btn btn--secondary" onClick={fetchPortfolio}>
                             <RefreshCw size={16} /> Refresh
                         </button>
-                        <button className="btn btn--secondary" onClick={() => { setShowImportModal(true); setImportResult(null); setImportFile(null) }}>
-                            <Upload size={16} /> Import CSV
-                        </button>
-                        <button className="btn btn--primary" onClick={() => { resetForm(); setShowAddModal(true) }}>
-                            <Plus size={16} /> Add Holding
-                        </button>
+                        {viewMode === 'personal' && (
+                            <>
+                                <button className="btn btn--secondary" onClick={() => { setShowImportModal(true); setImportResult(null); setImportFile(null) }}>
+                                    <Upload size={16} /> Import CSV
+                                </button>
+                                <button className="btn btn--primary" onClick={() => { resetForm(); setShowAddModal(true) }}>
+                                    <Plus size={16} /> Add Holding
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -448,8 +549,12 @@ export function PortfolioPage() {
                                                     </td>
                                                     <td className="num">{h.weight_pct.toFixed(1)}%</td>
                                                     <td className="actions-cell">
-                                                        <button className="icon-btn" onClick={() => openEdit(h)} title="Edit"><Edit3 size={14} /></button>
-                                                        <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(h.id)} title="Delete"><Trash2 size={14} /></button>
+                                                        {viewMode === 'personal' && (
+                                                            <>
+                                                                <button className="icon-btn" onClick={() => openEdit(h as any)} title="Edit"><Edit3 size={14} /></button>
+                                                                <button className="icon-btn icon-btn--danger" onClick={() => handleDelete(h.id)} title="Delete"><Trash2 size={14} /></button>
+                                                            </>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -471,7 +576,7 @@ export function PortfolioPage() {
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
                                             <Pie data={allocationData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                                                {allocationData.map((_entry, i) => (
+                                                {allocationData.map((_entry: any, i: number) => (
                                                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                                 ))}
                                             </Pie>
@@ -485,7 +590,7 @@ export function PortfolioPage() {
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
                                             <Pie data={sectorData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                                                {sectorData.map((_entry, i) => (
+                                                {sectorData.map((_entry: any, i: number) => (
                                                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                                 ))}
                                             </Pie>
