@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { apiFetch } from '../utils/api'
 
 const API = '/api/portfolio'
 
@@ -36,8 +37,7 @@ export function usePortfolio() {
 
     // 1. On mount: list portfolios and get the first one's ID
     useEffect(() => {
-        fetch(API)
-            .then(r => r.json())
+        apiFetch(API)
             .then((list: { id: number }[]) => {
                 if (list.length > 0) setPortfolioId(list[0].id)
             })
@@ -49,8 +49,7 @@ export function usePortfolio() {
         if (!portfolioId) return
         setLoading(true)
         setError(null)
-        fetch(`${API}/${portfolioId}`)
-            .then(r => r.json())
+        apiFetch(`${API}/${portfolioId}`)
             .then((data: PortfolioData) => {
                 if ((data as any).error) {
                     setError((data as any).error)
@@ -67,9 +66,8 @@ export function usePortfolio() {
     // 3. CRUD operations
     const addHolding = async (ticker: string, shares: number, avgCostBasis: number) => {
         if (!portfolioId) return
-        await fetch(`${API}/${portfolioId}/holdings`, {
+        await apiFetch(`${API}/${portfolioId}/holdings`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
         })
         refresh()
@@ -77,9 +75,8 @@ export function usePortfolio() {
 
     const updateHolding = async (holdingId: number, ticker: string, shares: number, avgCostBasis: number) => {
         if (!portfolioId) return
-        await fetch(`${API}/${portfolioId}/holdings/${holdingId}`, {
+        await apiFetch(`${API}/${portfolioId}/holdings/${holdingId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
         })
         refresh()
@@ -87,7 +84,7 @@ export function usePortfolio() {
 
     const removeHolding = async (holdingId: number) => {
         if (!portfolioId) return
-        await fetch(`${API}/${portfolioId}/holdings/${holdingId}`, { method: 'DELETE' })
+        await apiFetch(`${API}/${portfolioId}/holdings/${holdingId}`, { method: 'DELETE' })
         refresh()
     }
 
@@ -95,17 +92,16 @@ export function usePortfolio() {
         if (!portfolioId) return null
         const formData = new FormData()
         formData.append('file', file)
-        const res = await fetch(`${API}/${portfolioId}/import/csv`, {
-            method: 'POST',
-            body: formData,
-        })
-        if (!res.ok) {
-            const text = await res.text()
-            return { error: text || `Server error (${res.status})` }
+        try {
+            const data = await apiFetch(`${API}/${portfolioId}/import/csv`, {
+                method: 'POST',
+                body: formData,
+            })
+            if (!data.error) refresh()
+            return data
+        } catch (e: any) {
+            return { error: e.message || 'Server error' }
         }
-        const data = await res.json()
-        if (!data.error) refresh()
-        return data
     }
 
     return { portfolio, loading, error, addHolding, updateHolding, removeHolding, importCsv, refresh }

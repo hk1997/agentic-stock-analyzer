@@ -90,6 +90,7 @@ class Portfolio(Base):
     __tablename__ = "portfolios"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False, default="My Portfolio")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -139,3 +140,79 @@ class Transaction(Base):
     )
 
 
+class User(Base):
+    """
+    User account for authentication and linking.
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    name = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class LinkedAccount(Base):
+    """
+    Relationship between two users for unified viewing and joint expenses.
+    """
+    __tablename__ = "linked_accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    linked_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Expense(Base):
+    """
+    Individual expense transaction.
+    """
+    __tablename__ = "expenses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    category = Column(String(100), nullable=False)
+    amount = Column(Float, nullable=False)
+    description = Column(String(255))
+    is_joint = Column(Integer, default=0) # 0 for false, 1 for true (SQLite compat boolean)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Income(Base):
+    """
+    Individual income transaction.
+    """
+    __tablename__ = "income"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    source = Column(String(100), nullable=False)
+    amount = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ManualAsset(Base):
+    """
+    Manual assets like Real Estate, Cash, Vehicles.
+    """
+    __tablename__ = "manual_assets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_type = Column(String(100), nullable=False) # e.g. "Real Estate", "Cash"
+    value = Column(Float, nullable=False)
+    description = Column(String(255))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class NetWorthSnapshot(Base):
+    """
+    Daily/Monthly snapshot of total net worth.
+    """
+    __tablename__ = "net_worth_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    total_assets = Column(Float, nullable=False) # Computed Portfolio + ManualAssets
+    total_liabilities = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
