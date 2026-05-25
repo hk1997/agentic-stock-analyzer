@@ -55,7 +55,7 @@ export function NetWorthPage() {
     const currentNetWorth = history.length > 0 ? history[history.length - 1].net_worth : 0;
 
     return (
-        <div className="page-container" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <header>
                 <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Net Worth</h1>
                 <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0 0 0' }}>Track your total assets and liabilities</p>
@@ -151,6 +151,6 @@ export function NetWorthPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     );
 }

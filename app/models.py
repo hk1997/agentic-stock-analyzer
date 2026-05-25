@@ -216,3 +216,27 @@ class NetWorthSnapshot(Base):
     total_assets = Column(Float, nullable=False) # Computed Portfolio + ManualAssets
     total_liabilities = Column(Float, nullable=False, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ExpenseCategoryRule(Base):
+    """
+    User-defined regex rules to automatically categorize expenses.
+    """
+    __tablename__ = "expense_category_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    regex_pattern = Column(String(255), nullable=False)
+    category_name = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class RawExpense(Base):
+    """
+    Raw data from CSV import, linked to the processed Expense.
+    """
+    __tablename__ = "raw_expenses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    expense_id = Column(Integer, ForeignKey("expenses.id", ondelete="CASCADE"), nullable=True, index=True)
+    raw_data = Column(String, nullable=False) # JSON representation of the CSV row
+    imported_at = Column(DateTime(timezone=True), server_default=func.now())

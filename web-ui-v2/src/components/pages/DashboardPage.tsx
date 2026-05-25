@@ -62,7 +62,7 @@ export function DashboardPage() {
     if (isLoading) return <div className="page-container">Loading your financial summary...</div>;
 
     return (
-        <div className="page-container" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
                     <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Welcome back, {user?.name || user?.email.split('@')[0]}</h1>
@@ -191,6 +191,6 @@ export function DashboardPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     );
 }
