@@ -7,6 +7,7 @@
 
 /* ── Design Tokens ──────────────────────────────────────── */
 :root {
+  color-scheme: dark;
   --bg-deep: #05050a;
   --bg-surface: #0a0a14;
   --bg-panel: rgba(16, 16, 28, 0.65);
@@ -32,6 +33,7 @@
   --bg-card: var(--bg-panel);
   --border: var(--glass-border);
   --accent-blue: var(--accent);
+  --accent-green: var(--bullish);
   --accent-red: var(--bearish);
 }
 
@@ -636,23 +638,27 @@ body {
   border: none;
 }
 
-.btn--primary {
+.btn--primary,
+.btn-primary {
   background: var(--accent-gradient);
   color: var(--bg-deep);
 }
 
-.btn--primary:hover {
+.btn--primary:hover,
+.btn-primary:hover {
   box-shadow: 0 0 24px rgba(0, 242, 254, 0.35);
   transform: translateY(-1px);
 }
 
-.btn--secondary {
+.btn--secondary,
+.btn-secondary {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
   border: 1px solid var(--glass-border);
 }
 
-.btn--secondary:hover {
+.btn--secondary:hover,
+.btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: var(--glass-border-hover);
 }
