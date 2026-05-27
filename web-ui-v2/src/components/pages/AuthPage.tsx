@@ -6,19 +6,33 @@ import { Activity } from 'lucide-react';
 export function AuthPage() {
     const { login } = useAuth();
     const [isLogin, setIsLogin] = useState(true);
+    const [isForgotPassword, setIsForgotPassword] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
+    const [secretKey, setSecretKey] = useState('');
     const [error, setError] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setSuccessMessage('');
         setIsLoading(true);
 
         try {
-            if (isLogin) {
+            if (isForgotPassword) {
+                const data = await apiFetch('/api/auth/reset-password', {
+                    method: 'POST',
+                    body: JSON.stringify({ email, new_password: password, secret_key: secretKey }),
+                });
+                setSuccessMessage(data.message || 'Password reset successfully. You can now login.');
+                setIsForgotPassword(false);
+                setIsLogin(true);
+                setPassword('');
+                setSecretKey('');
+            } else if (isLogin) {
                 // OAuth2PasswordRequestForm expects form data
                 const formData = new FormData();
                 formData.append('username', email);
@@ -67,13 +81,14 @@ export function AuthPage() {
                     <Activity size={48} />
                 </div>
                 <h2 style={{ textAlign: 'center', margin: 0, color: 'var(--text-primary)' }}>
-                    {isLogin ? 'Welcome Back' : 'Create Account'}
+                    {isForgotPassword ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Create Account')}
                 </h2>
                 
                 {error && <div style={{ color: 'var(--accent-red)', fontSize: '0.9rem', textAlign: 'center', background: 'rgba(255, 59, 48, 0.1)', padding: '0.5rem', borderRadius: '4px' }}>{error}</div>}
+                {successMessage && <div style={{ color: 'var(--accent-green)', fontSize: '0.9rem', textAlign: 'center', background: 'rgba(48, 209, 88, 0.1)', padding: '0.5rem', borderRadius: '4px' }}>{successMessage}</div>}
                 
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {!isLogin && (
+                    {!isLogin && !isForgotPassword && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Name</label>
                             <input 
@@ -97,7 +112,9 @@ export function AuthPage() {
                     </div>
                     
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Password</label>
+                        <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                            {isForgotPassword ? 'New Password' : 'Password'}
+                        </label>
                         <input 
                             type="password" 
                             required 
@@ -106,6 +123,35 @@ export function AuthPage() {
                             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '0.75rem', borderRadius: '8px', color: 'var(--text-primary)' }}
                         />
                     </div>
+
+                    {isForgotPassword && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Admin Secret Key</label>
+                            <input 
+                                type="password" 
+                                required 
+                                value={secretKey} 
+                                onChange={(e) => setSecretKey(e.target.value)}
+                                placeholder="Enter server secret key"
+                                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '0.75rem', borderRadius: '8px', color: 'var(--text-primary)' }}
+                            />
+                        </div>
+                    )}
+
+                    {isLogin && !isForgotPassword && (
+                        <div style={{ textAlign: 'right', marginTop: '-0.25rem' }}>
+                            <span 
+                                onClick={() => {
+                                    setIsForgotPassword(true);
+                                    setError('');
+                                    setSuccessMessage('');
+                                }} 
+                                style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontSize: '0.85rem' }}
+                            >
+                                Forgot password?
+                            </span>
+                        </div>
+                    )}
                     
                     <button 
                         type="submit" 
@@ -116,24 +162,44 @@ export function AuthPage() {
                             padding: '0.75rem', 
                             borderRadius: '8px', 
                             border: 'none', 
-                            marginTop: '1rem',
+                            marginTop: '0.5rem',
                             cursor: isLoading ? 'not-allowed' : 'pointer',
                             fontWeight: 'bold',
                             opacity: isLoading ? 0.7 : 1
                         }}
                     >
-                        {isLoading ? 'Processing...' : (isLogin ? 'Login' : 'Sign Up')}
+                        {isLoading ? 'Processing...' : (isForgotPassword ? 'Reset Password' : (isLogin ? 'Login' : 'Sign Up'))}
                     </button>
                 </form>
                 
                 <div style={{ textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    {isLogin ? "Don't have an account? " : "Already have an account? "}
-                    <span 
-                        onClick={() => setIsLogin(!isLogin)} 
-                        style={{ color: 'var(--accent-blue)', cursor: 'pointer' }}
-                    >
-                        {isLogin ? 'Sign up' : 'Login'}
-                    </span>
+                    {isForgotPassword ? (
+                        <span 
+                            onClick={() => {
+                                setIsForgotPassword(false);
+                                setIsLogin(true);
+                                setError('');
+                                setSuccessMessage('');
+                            }} 
+                            style={{ color: 'var(--accent-blue)', cursor: 'pointer' }}
+                        >
+                            Back to Login
+                        </span>
+                    ) : (
+                        <>
+                            {isLogin ? "Don't have an account? " : "Already have an account? "}
+                            <span 
+                                onClick={() => {
+                                    setIsLogin(!isLogin);
+                                    setError('');
+                                    setSuccessMessage('');
+                                }} 
+                                style={{ color: 'var(--accent-blue)', cursor: 'pointer' }}
+                            >
+                                {isLogin ? 'Sign up' : 'Login'}
+                            </span>
+                        </>
+                    )}
                 </div>
             </div>
         </div>
