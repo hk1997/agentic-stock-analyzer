@@ -134,3 +134,50 @@ async def get_linked_accounts(
     )
     links = result.all()
     return [{"id": l.id, "email": l.email, "name": l.name} for l in links]
+
+class PasswordResetRequest(BaseModel):
+    email: str
+    new_password: str
+    secret_key: str
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/reset-password")
+async def reset_password(req: PasswordResetRequest, db: AsyncSession = Depends(get_db_session)):
+    from app.auth import SECRET_KEY
+    if req.secret_key != SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin secret key",
+        )
+    
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+        
+    user.hashed_password = get_password_hash(req.new_password)
+    await db.commit()
+    return {"status": "success", "message": "Password reset successfully"}
+
+@router.post("/change-password")
+async def change_password(
+    req: PasswordChangeRequest, 
+    current_user: Annotated[User, Depends(get_current_user)], 
+    db: AsyncSession = Depends(get_db_session)
+):
+    if not verify_password(req.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect current password",
+        )
+        
+    current_user.hashed_password = get_password_hash(req.new_password)
+    await db.commit()
+    return {"status": "success", "message": "Password changed successfully"}
+

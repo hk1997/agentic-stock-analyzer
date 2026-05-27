@@ -11,3 +11,9 @@ async def clean_database_connections():
     """
     yield
     await engine.dispose()
+    try:
+        from app.cache import close_valkey_pool
+        await close_valkey_pool()
+    except Exception:
+        pass
+

@@ -1503,3 +1503,12 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.unlink-btn {
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.unlink-btn:hover {
+  color: var(--bearish) !important;
+  transform: scale(1.15);
+}

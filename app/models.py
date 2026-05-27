@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import Column, String, Float, DateTime, Integer, BigInteger, Index, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Column, String, Float, DateTime, Integer, BigInteger, Index, ForeignKey, func, UniqueConstraint, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -91,6 +91,7 @@ class Portfolio(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False, default="My Portfolio")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -204,6 +205,23 @@ class ManualAsset(Base):
     description = Column(String(255))
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+class Account(Base):
+    """
+    User accounts representing banks, brokerages, pensions, liabilities, manual assets etc.
+    """
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False) # e.g. "HSBC Savings", "SBI NRE/NRO", "EPFO"
+    classification = Column(String(50), nullable=False) # "asset" or "liability"
+    account_class = Column(String(100), nullable=False) # "cash", "portfolio", "real_estate", "gold", "pension", "loan", "credit_card", "other"
+    balance = Column(Float, nullable=False, default=0.0)
+    currency = Column(String(10), nullable=False, default="USD") # e.g. USD, GBP, INR, EUR
+    description = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 class NetWorthSnapshot(Base):
     """
     Daily/Monthly snapshot of total net worth.
@@ -240,3 +258,56 @@ class RawExpense(Base):
     expense_id = Column(Integer, ForeignKey("expenses.id", ondelete="CASCADE"), nullable=True, index=True)
     raw_data = Column(String, nullable=False) # JSON representation of the CSV row
     imported_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class FinancialGoal(Base):
+    """
+    Financial goals that a user or linked partners contribute to.
+    """
+    __tablename__ = "financial_goals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    category = Column(String(100), nullable=False) # e.g. "House", "Car", "Emergency Fund", "Vacation", "Other"
+    target_amount = Column(Float, nullable=False)
+    target_date = Column(DateTime(timezone=True), nullable=False)
+    linked_asset_type = Column(String(50), nullable=True) # "portfolio" or "manual_asset"
+    linked_asset_id = Column(Integer, nullable=True)
+    income_sources = Column(String(500), nullable=True) # Comma-separated list of income sources (e.g. "Salary, Dividends")
+    cash_flows = Column(Text, nullable=True) # JSON-serialized string representing continuous and non-continuous cash flows
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class GoalContribution(Base):
+    """
+    Individual contribution transactions toward a specific goal.
+    """
+    __tablename__ = "goal_contributions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    goal_id = Column(Integer, ForeignKey("financial_goals.id", ondelete="CASCADE"), nullable=False, index=True)
+    contributor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    date = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    description = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AccountTransaction(Base):
+    """
+    Individual transaction ledger record for a cash account, credit card, loan, pension etc.
+    """
+    __tablename__ = "account_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(Float, nullable=False) # Positive for credit/deposit, Negative for debit/withdrawal
+    transaction_type = Column(String(50), nullable=False) # "income", "expense", "transfer_out", "transfer_in"
+    category = Column(String(100), nullable=True)
+    description = Column(String(255))
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    
+    # Linked transaction ID in case of an internal account transfer
+    transfer_linked_transaction_id = Column(Integer, ForeignKey("account_transactions.id", ondelete="SET NULL"), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+

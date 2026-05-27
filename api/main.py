@@ -38,6 +38,24 @@ if os.path.exists(os.path.join(PROJECT_ROOT, "local.env")):
 else:
     load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
+async def take_nightly_net_worth_snapshots():
+    from app.database import async_session
+    from sqlalchemy import select
+    from app.models import User
+    from api.routes.finance import capture_user_net_worth_snapshot
+    from datetime import datetime, timezone
+    
+    async with async_session() as db:
+        result = await db.execute(select(User.id))
+        user_ids = [r[0] for r in result.all()]
+        
+        now = datetime.now(timezone.utc)
+        for user_id in user_ids:
+            try:
+                await capture_user_net_worth_snapshot(db, user_id, now)
+            except Exception as e:
+                print(f"Failed to capture snapshot for user {user_id}: {e}")
+
 # ── App Setup ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,6 +83,8 @@ async def lifespan(app: FastAPI):
     # Run at 8:00 AM UTC daily
     # Can configure via env var if needed, default to daily 8am
     scheduler.add_job(run_daily_job, 'cron', hour=8, minute=0)
+    # Run at 11:59 PM UTC daily for net worth snapshots
+    scheduler.add_job(take_nightly_net_worth_snapshots, 'cron', hour=23, minute=59)
     scheduler.start()
     
     yield
@@ -728,13 +748,17 @@ class HoldingRequest(BaseModel):
     shares: float
     avg_cost_basis: float
 
+class PortfolioUpdate(BaseModel):
+    name: str | None = None
+    account_id: int | None = None
+
 @app.get("/api/portfolio")
 async def list_portfolios(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     """List all portfolios for the current user. Creates a default one if none exist."""
     from app.database import async_session
-    from app.models import Portfolio
+    from app.models import Portfolio, Account
     from sqlalchemy import select
 
     async with async_session() as session:
@@ -750,7 +774,85 @@ async def list_portfolios(
             await session.refresh(default)
             portfolios = [default]
 
-        return [{"id": p.id, "name": p.name, "created_at": str(p.created_at)} for p in portfolios]
+        response = []
+        for p in portfolios:
+            account_name = None
+            if p.account_id:
+                acc = await session.get(Account, p.account_id)
+                if acc:
+                    account_name = acc.name
+            
+            response.append({
+                "id": p.id,
+                "name": p.name,
+                "account_id": p.account_id,
+                "account_name": account_name,
+                "created_at": str(p.created_at)
+            })
+        return response
+
+@app.patch("/api/portfolio/{portfolio_id}")
+async def update_portfolio(
+    portfolio_id: int,
+    port_in: PortfolioUpdate,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    from app.database import async_session
+    from app.models import Portfolio, Account
+    
+    async with async_session() as session:
+        port = await session.get(Portfolio, portfolio_id)
+        if not port or port.owner_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Portfolio not found")
+            
+        if port_in.name is not None:
+            port.name = port_in.name
+            
+        if port_in.account_id is not None:
+            if port_in.account_id == -1: # Sentinel for unlinking
+                port.account_id = None
+            else:
+                acc = await session.get(Account, port_in.account_id)
+                if not acc or acc.owner_id != current_user.id:
+                    raise HTTPException(status_code=400, detail="Invalid account ID")
+                port.account_id = port_in.account_id
+                
+        await session.commit()
+        return {"status": "success"}
+
+
+class PortfolioCreate(BaseModel):
+    name: str
+    account_id: int | None = None
+
+@app.post("/api/portfolio")
+async def create_portfolio(
+    port_in: PortfolioCreate,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    from app.database import async_session
+    from app.models import Portfolio, Account
+    
+    async with async_session() as session:
+        if port_in.account_id is not None:
+            acc = await session.get(Account, port_in.account_id)
+            if not acc or acc.owner_id != current_user.id:
+                raise HTTPException(status_code=400, detail="Invalid account ID")
+                
+        portfolio = Portfolio(
+            name=port_in.name,
+            owner_id=current_user.id,
+            account_id=port_in.account_id
+        )
+        session.add(portfolio)
+        await session.commit()
+        await session.refresh(portfolio)
+        return {
+            "id": portfolio.id,
+            "name": portfolio.name,
+            "account_id": portfolio.account_id,
+            "created_at": str(portfolio.created_at)
+        }
 
 
 @app.get("/api/portfolio/{portfolio_id}")
@@ -856,9 +958,18 @@ async def get_portfolio(portfolio_id: int):
         )
         last_txn_date = last_txn_result.scalar()
 
+        account_name = None
+        if port.account_id:
+            from app.models import Account
+            acc = await session.get(Account, port.account_id)
+            if acc:
+                account_name = acc.name
+
         return {
             "id": port.id,
             "name": port.name,
+            "account_id": port.account_id,
+            "account_name": account_name,
             "total_value": round(total_value, 2),
             "total_cost": round(total_cost, 2),
             "total_pnl": round(total_pnl, 2),

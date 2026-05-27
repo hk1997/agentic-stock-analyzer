@@ -131,10 +131,22 @@ export function PortfolioPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
+    const [portfoliosList, setPortfoliosList] = useState<any[]>([])
+    const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null)
+    const [accounts, setAccounts] = useState<any[]>([])
+    const [linkingAccountId, setLinkingAccountId] = useState<string>('')
+    const [showCreatePortfolioModal, setShowCreatePortfolioModal] = useState(false)
+    const [newPortfolioName, setNewPortfolioName] = useState('')
+
     const fetchPortfolio = useCallback(async () => {
         setLoading(true)
         setError(null)
         try {
+            // Fetch accounts of type portfolio
+            const accountsData = await apiFetch('/api/finance/accounts').catch(() => [])
+            const portAccounts = accountsData.filter((a: any) => a.account_class === 'portfolio')
+            setAccounts(portAccounts)
+
             if (viewMode === 'unified') {
                 const data = await apiFetch('/api/finance/unified-portfolio')
                 setPortfolio({
@@ -148,10 +160,15 @@ export function PortfolioPage() {
                     holdings: data.holdings,
                 })
             } else {
-                // Fetch default personal portfolio
                 const list = await apiFetch('/api/portfolio')
+                setPortfoliosList(list)
                 if (list.length > 0) {
-                    const data = await apiFetch(`/api/portfolio/${list[0].id}`)
+                    let targetId = selectedPortfolioId
+                    if (!targetId || !list.some((p: any) => p.id === targetId)) {
+                        targetId = list[0].id
+                        setSelectedPortfolioId(targetId)
+                    }
+                    const data = await apiFetch(`/api/portfolio/${targetId}`)
                     setPortfolio(data)
                 } else {
                     setPortfolio(null)
@@ -162,7 +179,52 @@ export function PortfolioPage() {
         } finally {
             setLoading(false)
         }
-    }, [viewMode])
+    }, [viewMode, selectedPortfolioId])
+
+    const handlePortfolioChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const id = parseInt(e.target.value, 10)
+        setSelectedPortfolioId(id)
+    }
+
+    const linkPortfolioToAccount = async (portfolioId: number, accountId: number) => {
+        try {
+            await apiFetch(`/api/portfolio/${portfolioId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ account_id: accountId }),
+            })
+            setLinkingAccountId('')
+            fetchPortfolio()
+        } catch (err: any) {
+            setError(err.message || 'Failed to link portfolio to account')
+        }
+    }
+
+    const unlinkPortfolioFromAccount = async (portfolioId: number) => {
+        try {
+            await apiFetch(`/api/portfolio/${portfolioId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ account_id: -1 }),
+            })
+            fetchPortfolio()
+        } catch (err: any) {
+            setError(err.message || 'Failed to unlink portfolio from account')
+        }
+    }
+
+    const createPortfolio = async (name: string) => {
+        if (!name.trim()) return
+        try {
+            const newPort = await apiFetch('/api/portfolio', {
+                method: 'POST',
+                body: JSON.stringify({ name }),
+            })
+            setNewPortfolioName('')
+            setShowCreatePortfolioModal(false)
+            setSelectedPortfolioId(newPort.id)
+        } catch (err: any) {
+            setError(err.message || 'Failed to create portfolio')
+        }
+    }
 
     useEffect(() => {
         fetchPortfolio()
@@ -406,8 +468,46 @@ export function PortfolioPage() {
                     <div className="portfolio-header__left">
                         <Briefcase size={28} />
                         <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                <h1>{portfolio?.name || 'My Portfolio'}</h1>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                                {viewMode === 'personal' ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <select
+                                            value={selectedPortfolioId || ''}
+                                            onChange={handlePortfolioChange}
+                                            style={{
+                                                background: 'var(--bg-card)',
+                                                color: 'var(--text)',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                padding: '0.4rem 2.2rem 0.4rem 1rem',
+                                                fontSize: '1.25rem',
+                                                fontWeight: 'bold',
+                                                cursor: 'pointer',
+                                                appearance: 'none',
+                                                backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
+                                                backgroundRepeat: 'no-repeat',
+                                                backgroundPosition: 'right 0.75rem center',
+                                                backgroundSize: '1rem',
+                                            }}
+                                        >
+                                            {portfoliosList.map((p: any) => (
+                                                <option key={p.id} value={p.id}>
+                                                    {p.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button 
+                                            className="btn btn--secondary" 
+                                            onClick={() => setShowCreatePortfolioModal(true)}
+                                            style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            title="Create New Portfolio"
+                                        >
+                                            <Plus size={16} />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <h1>Unified Portfolio</h1>
+                                )}
                                 <div style={{ display: 'flex', background: 'var(--bg-card)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
                                     <button 
                                         className={`btn ${viewMode === 'personal' ? 'btn--primary' : 'btn--secondary'}`} 
@@ -425,12 +525,101 @@ export function PortfolioPage() {
                                     </button>
                                 </div>
                             </div>
-                            <p className="portfolio-header__subtitle">
-                                {portfolio?.num_holdings || 0} holdings
+                            <p className="portfolio-header__subtitle" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <span>{portfolio?.num_holdings || 0} holdings</span>
                                 {(portfolio as any)?.last_updated && (
                                     <span className="last-updated"><Calendar size={12} /> Updated {(portfolio as any).last_updated}</span>
                                 )}
                             </p>
+                            {viewMode === 'personal' && portfolio && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                    {portfolio.account_id ? (
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            background: 'rgba(0, 230, 118, 0.1)',
+                                            color: '#00e676',
+                                            border: '1px solid rgba(0, 230, 118, 0.2)',
+                                            padding: '0.25rem 0.75rem',
+                                            borderRadius: '20px',
+                                        }}>
+                                            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#00e676' }}></span>
+                                            Linked to account: <strong>{portfolio.account_name}</strong>
+                                            <button
+                                                onClick={() => unlinkPortfolioFromAccount(portfolio.id)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-secondary)',
+                                                    cursor: 'pointer',
+                                                    padding: '0 0 0 0.25rem',
+                                                    marginLeft: '0.5rem',
+                                                    display: 'flex',
+                                                    alignItems: 'center'
+                                                }}
+                                                title="Unlink from Account"
+                                                className="unlink-btn"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            background: 'rgba(255, 145, 0, 0.1)',
+                                            color: '#ff9100',
+                                            border: '1px solid rgba(255, 145, 0, 0.2)',
+                                            padding: '0.25rem 0.75rem',
+                                            borderRadius: '20px',
+                                            flexWrap: 'wrap'
+                                        }}>
+                                            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#ff9100' }}></span>
+                                            Standalone Portfolio (Not Linked)
+                                            
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginLeft: '0.5rem' }}>
+                                                <select
+                                                    value={linkingAccountId}
+                                                    onChange={(e) => setLinkingAccountId(e.target.value)}
+                                                    style={{
+                                                        background: 'var(--bg-main)',
+                                                        color: 'var(--text)',
+                                                        border: '1px solid var(--border)',
+                                                        borderRadius: '4px',
+                                                        padding: '0.1rem 0.5rem',
+                                                        fontSize: '0.8rem',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <option value="">Link to Account...</option>
+                                                    {accounts.map((a: any) => (
+                                                        <option key={a.id} value={a.id}>
+                                                            {a.name} ({a.currency})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    onClick={() => linkingAccountId && linkPortfolioToAccount(portfolio.id, parseInt(linkingAccountId, 10))}
+                                                    disabled={!linkingAccountId}
+                                                    className="btn btn--primary"
+                                                    style={{
+                                                        padding: '0.15rem 0.5rem',
+                                                        fontSize: '0.75rem',
+                                                        borderRadius: '4px',
+                                                        border: 'none',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    Link
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                         </div>
                     </div>
                     <div className="portfolio-header__actions">
@@ -910,6 +1099,45 @@ export function PortfolioPage() {
                         </div>
                     </div>
                 )}
+
+                {/* Create Portfolio Modal */}
+                {showCreatePortfolioModal && (
+                    <div className="modal-overlay" onClick={() => setShowCreatePortfolioModal(false)}>
+                        <div className="modal" onClick={e => e.stopPropagation()}>
+                            <div className="modal__header">
+                                <h3>Create New Portfolio</h3>
+                                <button className="icon-btn" onClick={() => setShowCreatePortfolioModal(false)}><X size={18} /></button>
+                            </div>
+                            <div className="modal__body">
+                                <label>
+                                    Portfolio Name
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Trading 212 ISA"
+                                        value={newPortfolioName}
+                                        onChange={e => setNewPortfolioName(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                createPortfolio(newPortfolioName)
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
+                            <div className="modal__footer">
+                                <button className="btn btn--secondary" onClick={() => setShowCreatePortfolioModal(false)}>Cancel</button>
+                                <button 
+                                    className="btn btn--primary" 
+                                    onClick={() => createPortfolio(newPortfolioName)}
+                                    disabled={!newPortfolioName.trim()}
+                                >
+                                    Create
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
 
                 {/* Import CSV Modal */}
                 {showImportModal && (

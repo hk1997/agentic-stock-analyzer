@@ -198,4 +198,68 @@ async def test_e2e_super_app_flow(unique_users):
         # Total cost should be 10 * 150 + 5 * 250 = 1500 + 1250 = 2750
         assert unified_data["total_cost"] == 2750.0
 
+        # ---------------------------------------------------------
+        # 6. Password Change & Reset Flow
+        # ---------------------------------------------------------
+        from app.auth import SECRET_KEY
+        
+        # Test Authenticated Password Change - Invalid Current Password
+        res_change_fail = await client.post("/api/auth/change-password", json={
+            "current_password": "WrongPassword123!",
+            "new_password": "NewSecurePassword123!"
+        }, headers=headers_a)
+        assert res_change_fail.status_code == 400
+        
+        # Test Authenticated Password Change - Success
+        res_change_ok = await client.post("/api/auth/change-password", json={
+            "current_password": unique_users["password"],
+            "new_password": "NewSecurePassword123!"
+        }, headers=headers_a)
+        assert res_change_ok.status_code == 200
+        
+        # Login with old password should fail now
+        res_login_old_fail = await client.post("/api/auth/login", data={
+            "username": unique_users["user_a_email"],
+            "password": unique_users["password"]
+        })
+        assert res_login_old_fail.status_code == 401
+        
+        # Login with new password should succeed
+        res_login_new_ok = await client.post("/api/auth/login", data={
+            "username": unique_users["user_a_email"],
+            "password": "NewSecurePassword123!"
+        })
+        assert res_login_new_ok.status_code == 200
+        
+        # Test Unauthenticated Password Reset - Bad Secret Key
+        res_reset_bad_key = await client.post("/api/auth/reset-password", json={
+            "email": unique_users["user_a_email"],
+            "new_password": "ResetPassword999!",
+            "secret_key": "wrong-secret-key"
+        })
+        assert res_reset_bad_key.status_code == 401
+        
+        # Test Unauthenticated Password Reset - Correct Secret Key
+        res_reset_ok = await client.post("/api/auth/reset-password", json={
+            "email": unique_users["user_a_email"],
+            "new_password": "ResetPassword999!",
+            "secret_key": SECRET_KEY
+        })
+        assert res_reset_ok.status_code == 200
+        
+        # Login with NewSecurePassword123! should now fail
+        res_login_changed_fail = await client.post("/api/auth/login", data={
+            "username": unique_users["user_a_email"],
+            "password": "NewSecurePassword123!"
+        })
+        assert res_login_changed_fail.status_code == 401
+        
+        # Login with ResetPassword999! should succeed
+        res_login_reset_ok = await client.post("/api/auth/login", data={
+            "username": unique_users["user_a_email"],
+            "password": "ResetPassword999!"
+        })
+        assert res_login_reset_ok.status_code == 200
+
         print("✅ All E2E flows verified successfully!")
+

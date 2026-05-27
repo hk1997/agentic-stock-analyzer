@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Sidebar } from './components/layout/Sidebar'
 import { DashboardPage } from './components/pages/DashboardPage'
+import { GoalsPage } from './components/pages/GoalsPage'
 import { AnalysisPage } from './components/pages/AnalysisPage'
 import { PortfolioPage } from './components/pages/PortfolioPage'
 import { ExpensesPage } from './components/pages/ExpensesPage'
@@ -31,6 +32,7 @@ function App() {
                     <Sidebar />
                     <Routes>
                         <Route path="/" element={<DashboardPage />} />
+                        <Route path="/goals" element={<GoalsPage />} />
                         <Route path="/analysis" element={<AnalysisPage />} />
                         <Route path="/portfolio" element={<PortfolioPage />} />
                         <Route path="/expenses" element={<ExpensesPage />} />
