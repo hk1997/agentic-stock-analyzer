@@ -1,150 +1,105 @@
-# Agentic Stock Analyzer
+# Agentic Stock Analyzer 📈🤖
 
-A Python-based stock analysis tool leveraging LangGraph, Gemini, and yfinance to provide stock information. The project has evolved from manual logic to a fully autonomous agent using LLM function calling.
+A comprehensive, state-of-the-art wealth tracking and stock analysis application powered by a **Multi-Agent LangGraph Orchestrator**, a **FastAPI backend**, and a **React-Vite frontend (web-ui-v2)**.
 
-## Project Structure
+The project features dynamic multi-currency asset tracking, account ledger transactions, net worth snapshots, and specialized AI agents that collaborate to answer user queries with real-time financial data.
+
+---
+
+## 📸 Dashboards
+
+### Net Worth Page
+Includes a dynamic resolution trend area chart, detailed asset/liability breakdowns, and real-time currency conversions showing your net worth in **USD**, **GBP (£)**, and **INR (₹)**.
+![Net Worth Dashboard](docs/images/networth_dashboard.png)
+
+### Portfolio Page
+Tracks multi-currency holdings (e.g. US Equities, UK Equities, Indian Equities) with dynamic exchange rates, live market value pricing, asset allocation breakdowns, and benchmark performance comparison.
+![Portfolio Dashboard](docs/images/portfolio_dashboard.png)
+
+---
+
+## 🛠️ Project Structure
 
 ```
 /
-├── app/                 # Main application package
-│   ├── __init__.py
-│   ├── agent.py         # Graph definition and "compile()"
-│   ├── state.py         # State definition (AgentState)
-│   ├── tools.py         # Tool definitions (fetch_stock_price)
-├── main.py              # Application entry point
-├── .env                 # Environment variables (API Keys)
-├── requirements.txt     # Project dependencies
+├── api/                 # FastAPI Router & Endpoint Definitions
+│   ├── routes/
+│   │   ├── auth.py      # User authentication and registration
+│   │   └── finance.py   # Account, Ledger, and Net Worth Snapshot routes
+│   └── main.py          # Backend server entry & SSE chat stream
+├── app/                 # LangGraph Multi-Agent Orchestrator
+│   ├── agents/          # Specialized Analyst Agents (Tech, Fund, Quant, etc.)
+│   ├── agent.py         # Main agent compile entrypoint
+│   ├── cache.py         # Valkey/Redis cache & yfinance rate-limiting logic
+│   └── database.py      # Async DB session and engine setup
+├── web-ui-v2/           # React + TypeScript + Vite Web Application
+│   ├── src/             # Components, hooks, and routing
+│   └── package.json     # Node dependencies and scripts
+├── tests/               # Python unit and integration test suite
+├── docker-compose.yml   # Multi-service local deployment config
+├── pyproject.toml       # Poetry python dependency management
 └── README.md            # Project documentation
 ```
 
-## Features Implemented
+---
 
-### Phase 3: Advanced Analysis (In Progress)
-*   **News Search (DuckDuckGo):** integrated `search_web` tool to fetch real-time news and explain "Why" a stock is moving. (Free & Privacy-focused).
-*   **Local LLM Support (Ollama):** Added support for running local models (like Llama 3, Mistral) via Ollama for privacy and cost savings. Configurable via `.env`.
-*   **Memory (Persistence):** Implemented `MemorySaver` to enable multi-turn conversations and context retention.
-*   **Technical Indicators:** Added tools for RSI, SMA, and MACD calculations.
-*   **Historical Data:** Enhanced `fetch_stock_price` to retrieve price history over `n` days.
-*   **Efficient Caching:** Implemented `lru_cache` to minimize redundant API calls during multi-tool analysis.
+## 🚀 Core Features
 
-### Phase 2: Autonomous Agent (Refactored)
-*   **Modular Architecture:** Refactored from a monolithic script to a structured `app/` package, separating State, Tools, and Agent logic.
-*   **Standardized ToolNode:** Replaced manual tool execution with `langgraph.prebuilt.ToolNode` for robustness.
-*   **LLM Function Calling:** Native tool binding (`bind_tools`) allows Gemini to intelligently invoke `fetch_stock_price`.
-*   **Cyclic Graph Flow:** The graph loops (`Tool -> Agent`) enabling natural language interpretation of data.
+### 1. Multi-Agent LangGraph Architecture
+The application uses a **Supervisor-Worker Pattern** where a central orchestrator delegates complex analysis requests to specialized, isolated worker agents:
+*   **Technical Analyst:** Calculates SMAs, RSI, MACD, and historical price indicators.
+*   **Fundamental Analyst:** Evaluates balance sheets, P/E ratios, and company profiles.
+*   **Sentiment/News Analyst:** Performs DuckDuckGo searches to find news explaining market movement.
+*   **Valuation Analyst:** Generates DCF models based on systematic growth assumptions (CAPM, WACC).
+*   **Quant Analyst:** Evaluates risk metrics (Sharpe ratio, volatility) and backtests strategies.
 
-### Phase 1: Foundation (Completed)
-*   **LangGraph Integration:** Set up a stateful graph with `agent` and `tool` nodes.
-*   **yfinance Integration:** Real-time stock data fetching.
-*   **Interactive CLI:** Continuous user query loop.
-*   **Environment Management:** Secure API key loading using `python-dotenv`.
+### 2. Multi-Currency Accounts & Portfolios
+*   **Dynamic Exchange Rates:** Integrates with backend cache for live and fallback conversions across USD, GBP, and INR.
+*   **Automatic Pence-to-Pounds Normalization:** UK stock symbols pricing (e.g. `GBp`/`GBX`) are automatically normalized to pounds (`GBP`).
+*   **Direct USD Equivalents:** Bypasses double-conversion errors for accurate valuation representation.
 
-## Architecture & Flow
+### 3. Ledger Transactions & Cashflow
+*   Log deposits, withdrawals, transfers, and expense rules.
+*   Dynamically recalculates account balances on ledger adjustments.
+*   Tracks joint splits and cost responsibilities.
 
-### Comprehensive Architecture Flow
-The application uses a modern client-server architecture with a React frontend streaming data from a FastAPI backend, heavily heavily relying on LangGraph for multi-agent reasoning.
+---
 
-```mermaid
-graph TD
-    subgraph Frontend [React Frontend web-ui-v2]
-        UI[Chat UI]
-        HookChat[useChat.ts]
-        HookStock[useStockData.ts]
-        Chart[Stock Charts & Stats]
-        
-        UI -->|Sends Message| HookChat
-        HookChat -->|Extracts Ticker & Triggers| HookStock
-        HookStock -->|Feeds Data| Chart
-    end
+## ⚡ Multi-Model Fallback 🛡️
+Configure a fallback priority list in your `.env`. If a model fails or hits rate limits, the system automatically routes tasks to the next available provider (Gemini -> Groq -> Claude -> Local Ollama).
 
-    subgraph Backend [FastAPI Backend]
-        API_Chat(POST /api/chat/stream)
-        API_Stock(GET /api/stock/{ticker})
-        YF[yfinance library]
-        
-        HookChat <-->|SSE Stream| API_Chat
-        HookStock -->|HTTP GET| API_Stock
-        API_Stock --> YF
-    end
-
-    subgraph LangGraph [Multi-Agent LangGraph]
-        direction TB
-        Supervisor{Supervisor}
-        Tech[Technical Analyst]
-        Fund[Fundamental Analyst]
-        Sent[Sentiment Analyst]
-        Val[Valuation Analyst]
-        Quant[Quant Analyst]
-        
-        Supervisor -->|Routes| Tech
-        Supervisor -->|Routes| Fund
-        Supervisor -->|Routes| Sent
-        Supervisor -->|Routes| Val
-        Supervisor -->|Routes| Quant
-        
-        Tech --> Supervisor
-        Fund --> Supervisor
-        Sent --> Supervisor
-        Val --> Supervisor
-        Quant --> Supervisor
-    end
-
-    API_Chat -->|Invokes| Supervisor
-    Supervisor -->|FINISH| API_Chat
-    
-    %% Styling
-    classDef default fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC
-    classDef highlight fill:#3B82F6,stroke:#2563EB,stroke-width:2px,color:#fff
-    classDef agent fill:#047857,stroke:#059669,stroke-width:2px,color:#fff
-    
-    UI,Chart class:highlight
-    Tech,Fund,Sent,Val,Quant class:agent
-```
-
-### Components
-*   **React Hooks:** `useChat.ts` establishes a Server-Sent Events (SSE) connection. Contextual Regex extracts the target ticker. `useStockData.ts` fetches background analytics independently.
-*   **Supervisor Node:** The "brain" orchestrator receives the streaming prompt. Uses an LLM to route tasks between semantic specialists.
-*   **Agent Nodes:** Receive queries, execute tools silently, and loop back to the Supervisor until the query is fully answered.
-*   **Agent Node:** Receives user input or tool output. Uses `gemini-2.5-flash` to decide the next step (reply or call tool).
-*   **Tool Node:** Executes the requested tool (e.g., `fetch_stock_price`) and returns a structured `ToolMessage`.
-*   **Conditional Edge:** Inspects the LLM's response for `tool_calls`. If present, routes to the Tool Node; otherwise, ends the turn.
-
-## Roadmap
-
-- [x] **Phase 1: Foundation** (Manual Logic, Basic Graph)
-- [x] **Phase 2: Autonomous Agent** (Function Calling, Cyclic Graph)
-- [x] **Phase 1: Foundation** (Manual Logic, Basic Graph)
-- [x] **Phase 2: Autonomous Agent** (Function Calling, Cyclic Graph)
-- [x] **Phase 3: Advanced Analysis** (News Search, Local LLM, Memory)
-- [/] **Phase 4: Multi-Agent Architecture** (Supervisor Pattern, Specialized Agents)
-    - [x] **Supervisor (Router):** Implemented a central orchestrator (`app/agents/supervisor.py`) that delegates tasks.
-    - [x] **Technical Analyst:** Migrated price/indicator tools to a dedicated agent (`app/agents/technical.py`).
-    - [x] **Sentiment Analyst:** Migrated news search to a dedicated agent (`app/agents/sentiment.py`).
-    - [x] **Fundamental Analyst:** Implemented `app/agents/fundamental.py` to analyze financial health (P/E, Ratios, Company Profile).
-    - [x] **Valuation Analyst:** Implemented `app/agents/valuation.py` to perform DCF analysis using systematic assumptions (CAPM, Analyst Growth).
-    - [x] **Quant Analyst:** Implemented `app/agents/quant.py` for backtesting strategies (SMA Crossover, RSI) and calculating risk metrics (Sharpe, Volatility).
-
-### Multi-Model Fallback 🛡️
-You can configure a priority list of models. If the primary model fails (e.g., rate limits, API errors), the system automatically tries the next model in the list.
-
-**Configure via `.env`:**
 ```bash
-# Format: provider/model,provider/model,...
-# Order: Gemini (Flash) -> Groq (Llama3) -> Claude (Haiku) -> Ollama (Local)
 LLM_ORDER=gemini/gemini-2.5-flash,groq/llama-3.3-70b-versatile,anthropic/claude-3-haiku-20240307,ollama/llama3.1
 ```
-*The system will prioritizes cost-effective and fast models, falling back to others if limits are hit.*
 
-## Setup & Usage
+---
 
-1.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-2.  **Configure Environment:**
-    *   Create a `.env` file.
-    *   Add your API key: `GOOGLE_API_KEY=your_key`.
-3.  **Run:**
-    ```bash
-    python main.py
-    ```
+## ⚙️ Setup & Installation
+
+### Prerequisiutes
+* Docker & Docker Compose
+* Python 3.11+ (Poetry recommended)
+* Node.js 18+
+
+### Setup Environment
+Create a `.env` file in the root directory:
+```bash
+GOOGLE_API_KEY=your_gemini_key
+VALKEY_URL=redis://localhost:6379/0
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/stock_analyzer
+```
+
+### Launch with Docker Compose
+To run the entire system locally:
+```bash
+docker-compose up --build
+```
+*   **Frontend UI:** `http://localhost:5173`
+*   **FastAPI Swagger Docs:** `http://localhost:8000/docs`
+*   **Adminer DB Client:** `http://localhost:8080`
+
+### Running Tests
+Execute python unit and integration tests using Poetry:
+```bash
+poetry run pytest
+```
