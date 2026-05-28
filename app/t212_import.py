@@ -110,6 +110,12 @@ def parse_t212_transactions(file_content: str) -> list[dict]:
         external_id = row.get(field_map.get('ID', ''), '').strip() if 'ID' in field_map else ''
         currency = row.get(field_map.get('Currency (Price / share)', ''), '').strip() if 'Currency (Price / share)' in field_map else ''
 
+        # Normalize GBp/GBX to GBP and divide price by 100
+        if currency.upper() in ["GBP", "GBX"]:
+            if currency in ["GBp", "GBX", "gbp", "gbx"]:
+                price = price / 100.0
+            currency = "GBP"
+
         # Exchange rate
         exchange_rate = None
         if 'Exchange rate' in field_map:

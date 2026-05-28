@@ -11,7 +11,7 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from app.cache import get_cache, set_cache, cached_async, close_valkey_pool
+from app.cache import get_cache, set_cache, cached_async, close_valkey_pool, get_live_price
 from app.tasks import update_active_tickers_prices, log_user_query, trigger_jit_fundamentals, _ingest_price_history
 from app.email_service import run_daily_job
 
@@ -862,12 +862,21 @@ async def get_portfolio(portfolio_id: int):
     from app.database import async_session
     from app.models import Portfolio, PortfolioHolding
     from sqlalchemy import select
+    from api.routes.finance import convert_currency
 
     async with async_session() as session:
         # Fetch portfolio
         port = await session.get(Portfolio, portfolio_id)
         if not port:
             return {"error": f"Portfolio {portfolio_id} not found"}
+
+        # Determine target currency
+        target_currency = "USD"
+        if port.account_id:
+            from app.models import Account
+            acc = await session.get(Account, port.account_id)
+            if acc:
+                target_currency = acc.currency or "USD"
 
         # Fetch holdings
         result = await session.execute(
@@ -883,49 +892,24 @@ async def get_portfolio(portfolio_id: int):
         total_cost = 0.0
 
         for h in holdings:
-            try:
-                # Check Valkey cache first
-                cache_key = f"live_price:{h.ticker}"
-                cached_price = await get_cache(cache_key)
-                if cached_price:
-                    current_price = float(cached_price)
-                else:
-                    import concurrent.futures
-                    def _fetch_info(ticker=h.ticker):
-                        return yf.Ticker(ticker).info
-                    loop = asyncio.get_running_loop()
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        info = await loop.run_in_executor(pool, _fetch_info)
-                    current_price = (
-                        info.get("currentPrice")
-                        or info.get("regularMarketPrice")
-                        or info.get("previousClose")
-                        or info.get("regularMarketPreviousClose")
-                        or 0
-                    )
-                    sector = info.get("sector", "Unknown")
-                    name = info.get("shortName", h.ticker)
-                    if current_price:
-                        await set_cache(cache_key, str(current_price), ttl_seconds=300)
-                    await set_cache(f"sector:{h.ticker}", sector, ttl_seconds=86400)
-                    await set_cache(f"name:{h.ticker}", name, ttl_seconds=86400)
-            except Exception as exc:
-                import traceback
-                print(f"[portfolio] Price fetch error for {h.ticker}: {exc}")
-                traceback.print_exc()
-                current_price = 0
+            current_price = await get_live_price(h.ticker, fallback=0.0)
 
-            current_value = h.shares * current_price
-            cost_basis_total = h.shares * h.avg_cost_basis
+            # Get cached sector/name/currency
+            sector = await get_cache(f"sector:{h.ticker}") or "Unknown"
+            name = await get_cache(f"name:{h.ticker}") or h.ticker
+            ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
+
+            # Convert current_price and avg_cost_basis from ticker_currency to target_currency
+            converted_current_price = await convert_currency(current_price, ticker_currency, target_currency)
+            converted_avg_cost_basis = await convert_currency(h.avg_cost_basis, ticker_currency, target_currency)
+
+            current_value = h.shares * converted_current_price
+            cost_basis_total = h.shares * converted_avg_cost_basis
             unrealized_pnl = current_value - cost_basis_total
             unrealized_pnl_pct = (unrealized_pnl / cost_basis_total * 100) if cost_basis_total > 0 else 0
 
             total_value += current_value
             total_cost += cost_basis_total
-
-            # Get cached sector/name
-            sector = await get_cache(f"sector:{h.ticker}") or "Unknown"
-            name = await get_cache(f"name:{h.ticker}") or h.ticker
 
             enriched.append({
                 "id": h.id,
@@ -933,8 +917,8 @@ async def get_portfolio(portfolio_id: int):
                 "name": name,
                 "sector": sector,
                 "shares": h.shares,
-                "avg_cost_basis": round(h.avg_cost_basis, 2),
-                "current_price": round(current_price, 2),
+                "avg_cost_basis": round(converted_avg_cost_basis, 2),
+                "current_price": round(converted_current_price, 2),
                 "current_value": round(current_value, 2),
                 "cost_basis_total": round(cost_basis_total, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2),
@@ -970,6 +954,7 @@ async def get_portfolio(portfolio_id: int):
             "name": port.name,
             "account_id": port.account_id,
             "account_name": account_name,
+            "currency": target_currency,
             "total_value": round(total_value, 2),
             "total_cost": round(total_cost, 2),
             "total_pnl": round(total_pnl, 2),
@@ -997,6 +982,16 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         port = await session.get(Portfolio, portfolio_id)
         if not port:
             return {"error": f"Portfolio {portfolio_id} not found"}
+
+        # Determine target currency
+        target_currency = "USD"
+        if port.account_id:
+            from app.models import Account
+            acc = await session.get(Account, port.account_id)
+            if acc:
+                target_currency = acc.currency or "USD"
+
+        from api.routes.finance import convert_currency
 
         # Get holdings
         result = await session.execute(
@@ -1036,16 +1031,14 @@ async def get_portfolio_benchmarks(portfolio_id: int):
             elif "dividend" in action:
                 total_dividends += (abs(t.total_in_local or 0) / fx) if fx > 0 else 0
 
-    if not inception_date:
-        return {"error": "No transactions found"}
+        # Convert total_realized_pnl and total_dividends from USD to target_currency
+        total_realized_pnl = await convert_currency(total_realized_pnl, "USD", target_currency)
+        total_dividends = await convert_currency(total_dividends, "USD", target_currency)
 
     inception_str = inception_date.strftime("%Y-%m-%d")
     today = datetime.now()
 
-    # Total Invested is the cost basis of currently held shares
-    total_invested = sum(h.shares * h.avg_cost_basis for h in holdings if h.shares > 0)
-
-    # Build ticker list + weights
+    # Build ticker list
     tickers = [h.ticker for h in holdings if h.shares > 0]
     if not tickers:
         return {"error": "No active holdings"}
@@ -1080,21 +1073,39 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     if isinstance(close_df.columns, pd.MultiIndex):
         close_df.columns = close_df.columns.get_level_values(-1)
 
+    # Normalize close_df prices (converting pence to pounds for GBP tickers)
+    for ticker in tickers:
+        if ticker in close_df.columns:
+            currency = await get_cache(f"currency:{ticker}")
+            if not currency:
+                await get_live_price(ticker, fallback=0.0)
+                currency = await get_cache(f"currency:{ticker}") or "USD"
+            if currency == "GBP":
+                close_df[ticker] = close_df[ticker] / 100.0
+
     # Compute daily returns
     returns_df = close_df.pct_change().dropna()
     if returns_df.empty:
         return {"error": "Insufficient data for returns"}
 
-    # Compute current portfolio value from latest prices
+    # Compute current portfolio value and total invested from latest prices in target_currency
     current_value = 0.0
+    total_invested = 0.0
     weights = {}
     for h in holdings:
         if h.shares > 0 and h.ticker in close_df.columns:
             price = close_df[h.ticker].iloc[-1]
             if not pd.isna(price):
-                val = h.shares * price
+                ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
+                converted_price = await convert_currency(price, ticker_currency, target_currency)
+                converted_cost_basis = await convert_currency(h.avg_cost_basis, ticker_currency, target_currency)
+                
+                val = h.shares * converted_price
+                cost = h.shares * converted_cost_basis
+                
                 current_value += val
-                weights[h.ticker] = val  # raw value, will normalize below
+                total_invested += cost
+                weights[h.ticker] = val  # value in target_currency
 
     # Normalize weights
     if current_value > 0:
@@ -1197,6 +1208,7 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         "realized_pnl": round(total_realized_pnl, 2),
         "dividend_income": round(total_dividends, 2),
         "total_return_pct": total_return_pct,
+        "currency": target_currency,
     }
 
 
@@ -1446,10 +1458,23 @@ async def get_realized_summary(portfolio_id: int):
     Returns per-ticker breakdowns and totals.
     """
     from app.database import async_session
-    from app.models import Transaction
+    from app.models import Portfolio, Transaction
     from sqlalchemy import select
+    from api.routes.finance import convert_currency
 
     async with async_session() as session:
+        # Fetch portfolio to get target currency
+        port = await session.get(Portfolio, portfolio_id)
+        if not port:
+            return {"error": f"Portfolio {portfolio_id} not found"}
+
+        target_currency = "USD"
+        if port.account_id:
+            from app.models import Account
+            acc = await session.get(Account, port.account_id)
+            if acc:
+                target_currency = acc.currency or "USD"
+
         result = await session.execute(
             select(Transaction)
             .where(Transaction.portfolio_id == portfolio_id)
@@ -1478,16 +1503,25 @@ async def get_realized_summary(portfolio_id: int):
             entry = sells_by_ticker[ticker]
             proceeds_local = t.total_in_local or 0
             result_local = t.result_in_local or 0
-            entry["total_proceeds"] += proceeds_local
-            entry["total_realized_pnl"] += result_local
+
+            # Convert from GBP to target_currency
+            proceeds_target = await convert_currency(proceeds_local, "GBP", target_currency)
+            result_target = await convert_currency(result_local, "GBP", target_currency)
+
+            # Convert price_per_share from ticker currency to target currency
+            ticker_currency = (await get_cache(f"currency:{t.ticker}")) or "USD"
+            price_target = await convert_currency(t.price_per_share, ticker_currency, target_currency)
+
+            entry["total_proceeds"] += proceeds_target
+            entry["total_realized_pnl"] += result_target
             entry["total_shares_sold"] += t.shares
             entry["num_trades"] += 1
             entry["trades"].append({
                 "date": str(t.executed_at)[:10] if t.executed_at else "",
                 "shares": round(t.shares, 4),
-                "price": round(t.price_per_share, 2),
-                "proceeds": round(proceeds_local, 2),
-                "pnl": round(result_local, 2),
+                "price": round(price_target, 2),
+                "proceeds": round(proceeds_target, 2),
+                "pnl": round(result_target, 2),
             })
 
         realized_list = []
@@ -1520,13 +1554,21 @@ async def get_realized_summary(portfolio_id: int):
                 }
             entry = dividends_by_ticker[ticker]
             income_local = t.total_in_local or 0
-            entry["total_income"] += income_local
+
+            # Convert from GBP to target_currency
+            income_target = await convert_currency(income_local, "GBP", target_currency)
+
+            # Convert price_per_share from ticker currency to target currency
+            ticker_currency = (await get_cache(f"currency:{t.ticker}")) or "USD"
+            price_target = await convert_currency(t.price_per_share, ticker_currency, target_currency)
+
+            entry["total_income"] += income_target
             entry["num_payments"] += 1
             entry["payments"].append({
                 "date": str(t.executed_at)[:10] if t.executed_at else "",
                 "shares": round(t.shares, 4),
-                "per_share": round(t.price_per_share, 6),
-                "income": round(income_local, 2),
+                "per_share": round(price_target, 6),
+                "income": round(income_target, 2),
             })
 
         dividend_list = []
@@ -1548,6 +1590,7 @@ async def get_realized_summary(portfolio_id: int):
             "total_income": round(total_realized + total_dividends, 2),
             "realized": realized_list,
             "dividends": dividend_list,
+            "currency": target_currency,
         }
 
 
