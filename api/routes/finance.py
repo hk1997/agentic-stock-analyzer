@@ -722,7 +722,7 @@ async def delete_manual_asset(
 
 import asyncio
 import concurrent.futures
-from app.cache import get_cache, set_cache
+from app.cache import get_cache, set_cache, get_live_price
 
 async def convert_currency(amount: float, from_curr: str, to_curr: str) -> float:
     from_curr = from_curr.upper().strip()
@@ -793,6 +793,17 @@ async def convert_currency(amount: float, from_curr: str, to_curr: str) -> float
 
     return amount * rate
 
+@router.get("/exchange-rates")
+async def get_exchange_rates():
+    usd_to_gbp = await convert_currency(1.0, "USD", "GBP")
+    usd_to_inr = await convert_currency(1.0, "USD", "INR")
+    usd_to_eur = await convert_currency(1.0, "USD", "EUR")
+    return {
+        "USD_TO_GBP": usd_to_gbp,
+        "USD_TO_INR": usd_to_inr,
+        "USD_TO_EUR": usd_to_eur
+    }
+
 @router.get("/accounts")
 async def get_accounts(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -803,23 +814,27 @@ async def get_accounts(
     response = []
     for a in accounts:
         balance = a.balance
+        usd_value = None
         if a.account_class == "portfolio":
             port_res = await db.execute(select(Portfolio).where(Portfolio.account_id == a.id))
-            port = port_res.scalar_one_or_none()
-            if port:
-                holdings_res = await db.execute(select(PortfolioHolding).where(PortfolioHolding.portfolio_id == port.id))
+            portfolios = port_res.scalars().all()
+            if portfolios:
+                port_ids = [p.id for p in portfolios]
+                holdings_res = await db.execute(select(PortfolioHolding).where(PortfolioHolding.portfolio_id.in_(port_ids)))
                 holdings = holdings_res.scalars().all()
                 portfolio_val_usd = 0.0
                 for h in holdings:
-                    cache_key = f"live_price:{h.ticker}"
-                    cached_price = await get_cache(cache_key)
-                    price = float(cached_price) if cached_price else h.avg_cost_basis
-                    portfolio_val_usd += h.shares * price
+                    price = await get_live_price(h.ticker, fallback=h.avg_cost_basis)
+                    ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
+                    price_usd = await convert_currency(price, ticker_currency, "USD")
+                    portfolio_val_usd += h.shares * price_usd
                 
                 balance = await convert_currency(portfolio_val_usd, "USD", a.currency)
                 a.balance = balance
+                usd_value = portfolio_val_usd
 
-        usd_value = await convert_currency(balance, a.currency, "USD")
+        if usd_value is None:
+            usd_value = await convert_currency(balance, a.currency, "USD")
         response.append({
             "id": a.id,
             "owner_id": a.owner_id,
@@ -1235,22 +1250,26 @@ async def capture_user_net_worth_snapshot(db: AsyncSession, user_id: int, target
     accounts_liabilities = 0.0
     for a in accounts:
         balance = a.balance
+        usd_bal = None
         if a.account_class == "portfolio":
             # calculate portfolio balance dynamically
             port_res_acc = await db.execute(select(Portfolio).where(Portfolio.account_id == a.id))
-            port_acc = port_res_acc.scalar_one_or_none()
-            if port_acc:
-                holdings_res = await db.execute(select(PortfolioHolding).where(PortfolioHolding.portfolio_id == port_acc.id))
+            portfolios_acc = port_res_acc.scalars().all()
+            if portfolios_acc:
+                port_ids = [p.id for p in portfolios_acc]
+                holdings_res = await db.execute(select(PortfolioHolding).where(PortfolioHolding.portfolio_id.in_(port_ids)))
                 holdings = holdings_res.scalars().all()
                 portfolio_val_usd = 0.0
                 for h in holdings:
-                    cache_key = f"live_price:{h.ticker}"
-                    cached_price = await get_cache(cache_key)
-                    price = float(cached_price) if cached_price else h.avg_cost_basis
-                    portfolio_val_usd += h.shares * price
+                    price = await get_live_price(h.ticker, fallback=h.avg_cost_basis)
+                    ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
+                    price_usd = await convert_currency(price, ticker_currency, "USD")
+                    portfolio_val_usd += h.shares * price_usd
                 balance = await convert_currency(portfolio_val_usd, "USD", a.currency)
+                usd_bal = portfolio_val_usd
 
-        usd_bal = await convert_currency(balance, a.currency, "USD")
+        if usd_bal is None:
+            usd_bal = await convert_currency(balance, a.currency, "USD")
         if a.classification == "liability":
             accounts_liabilities += usd_bal
         else:
@@ -1481,10 +1500,10 @@ async def get_goals(
             holdings = holdings_res.scalars().all()
             portfolio_val_usd = 0.0
             for h in holdings:
-                cache_key = f"live_price:{h.ticker}"
-                cached_price = await get_cache(cache_key)
-                price = float(cached_price) if cached_price else h.avg_cost_basis
-                portfolio_val_usd += h.shares * price
+                price = await get_live_price(h.ticker, fallback=h.avg_cost_basis)
+                ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
+                price_usd = await convert_currency(price, ticker_currency, "USD")
+                portfolio_val_usd += h.shares * price_usd
             linked_asset_value = portfolio_val_usd
         elif goal.linked_asset_type == "manual_asset" and goal.linked_asset_id:
             asset_res = await db.execute(

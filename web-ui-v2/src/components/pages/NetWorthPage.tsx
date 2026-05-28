@@ -34,17 +34,24 @@ export function NetWorthPage() {
     const [accountBalance, setAccountBalance] = useState('');
     const [accountCurrency, setAccountCurrency] = useState('USD');
     const [accountDescription, setAccountDescription] = useState('');
+    const [exchangeRates, setExchangeRates] = useState<any>({
+        USD_TO_GBP: 1.0 / 1.27,
+        USD_TO_INR: 1.0 / 0.012,
+        USD_TO_EUR: 1.0 / 1.08
+    });
 
     const loadData = async (currentResolution: 'daily' | 'monthly' = resolution) => {
         try {
-            const [historyData, assetsData, accountsData] = await Promise.all([
+            const [historyData, assetsData, accountsData, ratesData] = await Promise.all([
                 apiFetch(`/api/finance/net-worth-history?resolution=${currentResolution}`),
                 apiFetch('/api/finance/manual-assets'),
-                apiFetch('/api/finance/accounts')
+                apiFetch('/api/finance/accounts'),
+                apiFetch('/api/finance/exchange-rates')
             ]);
             setHistory(historyData);
             setAssets(assetsData);
             setAccounts(accountsData);
+            setExchangeRates(ratesData);
         } catch (error) {
             console.error("Failed to load net worth data", error);
         } finally {
@@ -286,13 +293,27 @@ export function NetWorthPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     {/* Net Worth KPI Card */}
                     <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
+                        <div style={{ flex: 1 }}>
                             <h3 style={{ color: 'var(--text-secondary)', margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Current Net Worth</h3>
                             <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
                                 ${currentNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
+                            <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.75rem', padding: '0.5rem 0 0 0', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>GBP Equivalent</span>
+                                    <span style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                                        £{(currentNetWorth * (exchangeRates?.USD_TO_GBP || 0.7874)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>INR Equivalent</span>
+                                    <span style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                                        ₹{(currentNetWorth * (exchangeRates?.USD_TO_INR || 83.33)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <div style={{ padding: '1rem', background: 'rgba(0, 242, 254, 0.08)', borderRadius: '14px', border: '1px solid rgba(0, 242, 254, 0.15)' }}>
+                        <div style={{ padding: '1rem', background: 'rgba(0, 242, 254, 0.08)', borderRadius: '14px', border: '1px solid rgba(0, 242, 254, 0.15)', alignSelf: 'flex-start' }}>
                             <Landmark size={32} style={{ color: 'var(--accent)' }} />
                         </div>
                     </div>

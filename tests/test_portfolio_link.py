@@ -163,3 +163,107 @@ async def test_portfolio_linking_and_goal_tracking(unique_user):
     finally:
         await valkey.delete("live_price:AAPL")
 
+
+@pytest.mark.anyio
+async def test_multicurrency_portfolio_and_holdings(unique_user):
+    valkey = get_valkey_client()
+    try:
+        # Pre-set mock caches for testing
+        await set_cache("live_price:MSFT", "200.0")
+        await set_cache("currency:MSFT", "USD")
+        await set_cache("live_price:LGEN.L", "2.50")
+        await set_cache("currency:LGEN.L", "GBP")
+        await set_cache("fx_rate:USD:GBP", str(1.0 / 1.27))
+        
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            headers = await get_auth_headers(client, unique_user)
+ 
+            # 1. Create a GBP-denominated account
+            gbp_acc = {
+                "name": "Barclays ISA",
+                "classification": "asset",
+                "account_class": "portfolio",
+                "balance": 0.0,
+                "currency": "GBP",
+                "description": "UK Brokerage"
+            }
+            res_acc = await client.post("/api/finance/accounts", json=gbp_acc, headers=headers)
+            assert res_acc.status_code == 200
+            acc_id = res_acc.json()["id"]
+ 
+            # 2. Create a portfolio and link it
+            res_port = await client.post("/api/portfolio", json={"name": "UK Speculative"}, headers=headers)
+            assert res_port.status_code == 200
+            port_id = res_port.json()["id"]
+ 
+            res_link = await client.patch(f"/api/portfolio/{port_id}", json={"account_id": acc_id}, headers=headers)
+            assert res_link.status_code == 200
+ 
+            # 3. Add holdings
+            # MSFT: 10 shares, cost basis 150.0 (in USD)
+            res_add_msft = await client.post(
+                f"/api/portfolio/{port_id}/holdings",
+                json={"ticker": "MSFT", "shares": 10.0, "avg_cost_basis": 150.0},
+                headers=headers
+            )
+            assert res_add_msft.status_code == 200
+ 
+            # LGEN.L: 100 shares, cost basis 2.0 (in GBP)
+            res_add_lgen = await client.post(
+                f"/api/portfolio/{port_id}/holdings",
+                json={"ticker": "LGEN.L", "shares": 100.0, "avg_cost_basis": 2.0},
+                headers=headers
+            )
+            assert res_add_lgen.status_code == 200
+ 
+            # 4. Fetch portfolio and verify conversions
+            res_get = await client.get(f"/api/portfolio/{port_id}", headers=headers)
+            assert res_get.status_code == 200
+            port_data = res_get.json()
+            assert port_data["currency"] == "GBP"
+ 
+            # Check holdings
+            holdings = port_data["holdings"]
+            msft_h = next(h for h in holdings if h["ticker"] == "MSFT")
+            lgen_h = next(h for h in holdings if h["ticker"] == "LGEN.L")
+ 
+            # Check conversions (USD to GBP static rate is 1/1.27 ~ 0.7874)
+            # MSFT price converted: 200 USD * (1 / 1.27) = 157.48 GBP
+            assert abs(msft_h["current_price"] - 157.48) < 0.1
+            # MSFT cost converted: 150 USD * (1 / 1.27) = 118.11 GBP
+            assert abs(msft_h["avg_cost_basis"] - 118.11) < 0.1
+ 
+            # LGEN.L remains unchanged as it is in GBP
+            assert lgen_h["current_price"] == 2.50
+            assert lgen_h["avg_cost_basis"] == 2.00
+ 
+            # 5. Check accounts endpoint and double-conversion bypass
+            # Pre-set both directions of exchange rates
+            await set_cache("fx_rate:GBP:USD", "1.27")
+            res_accounts = await client.get("/api/finance/accounts", headers=headers)
+            assert res_accounts.status_code == 200
+            accounts_data = res_accounts.json()
+            target_acc = next(acc for acc in accounts_data if acc["id"] == acc_id)
+            
+            # MSFT value in USD: 10 * 200 = 2000.0
+            # LGEN.L value in USD: 100 * 2.50 * 1.27 = 317.50
+            # Total portfolio value in USD = 2317.50
+            # Account balance in GBP = 2317.50 / 1.27 = 1824.80 GBP
+            assert abs(target_acc["balance"] - 1824.80) < 0.1
+            assert abs(target_acc["balance_usd"] - 2317.50) < 0.1
+ 
+            # 6. Check net worth history endpoint (triggering snapshot)
+            res_nw = await client.get("/api/finance/net-worth-history?resolution=daily", headers=headers)
+            assert res_nw.status_code == 200
+            nw_data = res_nw.json()
+            assert len(nw_data) == 1
+            # Net worth should be exactly total assets (2317.50 USD) - total liabilities (0.0) = 2317.50 USD
+            assert abs(nw_data[0]["net_worth"] - 2317.50) < 0.1
+    finally:
+        await valkey.delete("live_price:MSFT")
+        await valkey.delete("currency:MSFT")
+        await valkey.delete("live_price:LGEN.L")
+        await valkey.delete("currency:LGEN.L")
+        await valkey.delete("fx_rate:USD:GBP")
+        await valkey.delete("fx_rate:GBP:USD")
+

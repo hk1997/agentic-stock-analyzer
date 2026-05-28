@@ -57,6 +57,7 @@ interface RealizedData {
     total_income: number
     realized: RealizedTicker[]
     dividends: DividendTicker[]
+    currency?: string
 }
 
 interface BenchmarkReturns {
@@ -81,6 +82,7 @@ interface BenchmarkData {
     realized_pnl: number
     dividend_income: number
     total_return_pct: number | null
+    currency?: string
 }
 
 type SortDir = 'asc' | 'desc'
@@ -120,6 +122,16 @@ function SortableHeader<K extends string>({ label, sortKey, sort, onSort, classN
 function toggleSort<K extends string>(prev: SortState<K> | null, key: K): SortState<K> {
     if (prev?.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
     return { key, dir: 'desc' }
+}
+
+function getCurrencySymbol(currency?: string): string {
+    switch (currency?.toUpperCase()) {
+        case 'GBP': return '£'
+        case 'INR': return '₹'
+        case 'EUR': return '€'
+        case 'USD': return '$'
+        default: return '$'
+    }
 }
 
 const COLORS = ['#00e676', '#2979ff', '#ff9100', '#e040fb', '#00e5ff', '#ffea00', '#ff1744', '#76ff03', '#d500f9', '#1de9b6']
@@ -320,6 +332,10 @@ export function PortfolioPage() {
     const [importResult, setImportResult] = useState<{ new_transactions?: number; skipped?: number; holdings_count?: number; total_realized_pnl?: number; total_in_csv?: number; error?: string } | null>(null)
     const [dragOver, setDragOver] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const currencySymbol = getCurrencySymbol(portfolio?.currency)
+    const realizedCurrencySymbol = getCurrencySymbol(realizedData?.currency || portfolio?.currency)
+    const benchmarkCurrencySymbol = getCurrencySymbol(benchmarkData?.currency || portfolio?.currency)
 
     // Fetch realized data when tab switches
     const fetchRealized = useCallback(async () => {
@@ -647,14 +663,14 @@ export function PortfolioPage() {
                         <div className="summary-card__icon"><DollarSign size={20} /></div>
                         <div className="summary-card__content">
                             <span className="summary-card__label">Total Value</span>
-                            <span className="summary-card__value">${portfolio?.total_value?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}</span>
+                            <span className="summary-card__value">{currencySymbol}{portfolio?.total_value?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}</span>
                         </div>
                     </div>
                     <div className="summary-card">
                         <div className="summary-card__icon"><DollarSign size={20} /></div>
                         <div className="summary-card__content">
                             <span className="summary-card__label">Total Cost</span>
-                            <span className="summary-card__value">${portfolio?.total_cost?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}</span>
+                            <span className="summary-card__value">{currencySymbol}{portfolio?.total_cost?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}</span>
                         </div>
                     </div>
                     <div className="summary-card">
@@ -664,7 +680,7 @@ export function PortfolioPage() {
                         <div className="summary-card__content">
                             <span className="summary-card__label">Unrealized P&L</span>
                             <span className={`summary-card__value ${(portfolio?.total_pnl ?? 0) >= 0 ? 'positive' : 'negative'}`}>
-                                {(portfolio?.total_pnl ?? 0) >= 0 ? '+' : ''}${portfolio?.total_pnl?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}
+                                {(portfolio?.total_pnl ?? 0) >= 0 ? '+' : ''}{currencySymbol}{portfolio?.total_pnl?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '0.00'}
                             </span>
                         </div>
                     </div>
@@ -727,11 +743,11 @@ export function PortfolioPage() {
                                                     <td className="name-cell">{h.name}</td>
                                                     <td className="sector-cell">{h.sector}</td>
                                                     <td className="num">{h.shares}</td>
-                                                    <td className="num">${h.avg_cost_basis.toFixed(2)}</td>
-                                                    <td className="num">${h.current_price.toFixed(2)}</td>
-                                                    <td className="num">${h.current_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td className="num">{currencySymbol}{h.avg_cost_basis.toFixed(2)}</td>
+                                                    <td className="num">{currencySymbol}{h.current_price.toFixed(2)}</td>
+                                                    <td className="num">{currencySymbol}{h.current_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                                                     <td className={`num ${h.unrealized_pnl >= 0 ? 'positive' : 'negative'}`}>
-                                                        {h.unrealized_pnl >= 0 ? '+' : ''}${h.unrealized_pnl.toFixed(2)}
+                                                        {h.unrealized_pnl >= 0 ? '+' : ''}{currencySymbol}{h.unrealized_pnl.toFixed(2)}
                                                     </td>
                                                     <td className={`num ${h.unrealized_pnl_pct >= 0 ? 'positive' : 'negative'}`}>
                                                         {h.unrealized_pnl_pct >= 0 ? '+' : ''}{h.unrealized_pnl_pct.toFixed(2)}%
@@ -769,7 +785,7 @@ export function PortfolioPage() {
                                                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} contentStyle={{ background: '#1a1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e0e0e0' }} labelStyle={{ color: '#fff' }} itemStyle={{ color: '#ccc' }} />
+                                            <Tooltip formatter={(value: number) => `${currencySymbol}${value.toLocaleString()}`} contentStyle={{ background: '#1a1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e0e0e0' }} labelStyle={{ color: '#fff' }} itemStyle={{ color: '#ccc' }} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
@@ -783,7 +799,7 @@ export function PortfolioPage() {
                                                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} contentStyle={{ background: '#1a1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e0e0e0' }} labelStyle={{ color: '#fff' }} itemStyle={{ color: '#ccc' }} />
+                                            <Tooltip formatter={(value: number) => `${currencySymbol}${value.toLocaleString()}`} contentStyle={{ background: '#1a1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e0e0e0' }} labelStyle={{ color: '#fff' }} itemStyle={{ color: '#ccc' }} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
@@ -804,7 +820,7 @@ export function PortfolioPage() {
                                 <div className="realized-summary-strip">
                                     <div className={`realized-summary-pill ${realizedData.total_realized_pnl >= 0 ? 'positive' : 'negative'}`}>
                                         {realizedData.total_realized_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                                        Total Realized: <strong>£{realizedData.total_realized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                        Total Realized: <strong>{realizedCurrencySymbol}{realizedData.total_realized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                                     </div>
                                 </div>
                                 <div className="holdings-table-wrapper">
@@ -829,9 +845,9 @@ export function PortfolioPage() {
                                                         <td className="name-cell">{r.name}</td>
                                                         <td className="num">{r.num_trades}</td>
                                                         <td className="num">{r.total_shares_sold.toFixed(2)}</td>
-                                                        <td className="num">£{r.total_proceeds.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                        <td className="num">{realizedCurrencySymbol}{r.total_proceeds.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                                                         <td className={`num ${r.total_realized_pnl >= 0 ? 'positive' : 'negative'}`}>
-                                                            {r.total_realized_pnl >= 0 ? '+' : ''}£{r.total_realized_pnl.toFixed(2)}
+                                                            {r.total_realized_pnl >= 0 ? '+' : ''}{realizedCurrencySymbol}{r.total_realized_pnl.toFixed(2)}
                                                         </td>
                                                     </tr>
                                                     {expandedTickers.has('r_' + r.ticker) && r.trades.map((t, i) => (
@@ -840,10 +856,10 @@ export function PortfolioPage() {
                                                             <td className="detail-date">{t.date}</td>
                                                             <td></td>
                                                             <td className="num detail-num">{t.shares.toFixed(4)}</td>
-                                                            <td className="num detail-num">${t.price.toFixed(2)}</td>
-                                                            <td className="num detail-num">£{t.proceeds.toFixed(2)}</td>
+                                                            <td className="num detail-num">{realizedCurrencySymbol}{t.price.toFixed(2)}</td>
+                                                            <td className="num detail-num">{realizedCurrencySymbol}{t.proceeds.toFixed(2)}</td>
                                                             <td className={`num detail-num ${t.pnl >= 0 ? 'positive' : 'negative'}`}>
-                                                                {t.pnl >= 0 ? '+' : ''}£{t.pnl.toFixed(2)}
+                                                                {t.pnl >= 0 ? '+' : ''}{realizedCurrencySymbol}{t.pnl.toFixed(2)}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -870,7 +886,7 @@ export function PortfolioPage() {
                                 <div className="realized-summary-strip">
                                     <div className="realized-summary-pill positive">
                                         <DollarSign size={16} />
-                                        Total Dividends: <strong>£{realizedData.total_dividend_income.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                        Total Dividends: <strong>{realizedCurrencySymbol}{realizedData.total_dividend_income.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                                     </div>
                                 </div>
                                 <div className="holdings-table-wrapper">
@@ -892,15 +908,15 @@ export function PortfolioPage() {
                                                         <td className="ticker-cell">{d.ticker}</td>
                                                         <td className="name-cell">{d.name}</td>
                                                         <td className="num">{d.num_payments}</td>
-                                                        <td className="num positive">£{d.total_income.toFixed(2)}</td>
+                                                        <td className="num positive">{realizedCurrencySymbol}{d.total_income.toFixed(2)}</td>
                                                     </tr>
                                                     {expandedTickers.has('d_' + d.ticker) && d.payments.map((p, i) => (
                                                         <tr key={i} className="detail-row">
                                                             <td></td>
                                                             <td className="detail-date">{p.date}</td>
-                                                            <td className="detail-num">{p.shares.toFixed(2)} shares @ ${p.per_share.toFixed(4)}</td>
+                                                            <td className="detail-num">{p.shares.toFixed(2)} shares @ {realizedCurrencySymbol}{p.per_share.toFixed(4)}</td>
                                                             <td></td>
-                                                            <td className="num detail-num positive">£{p.income.toFixed(2)}</td>
+                                                            <td className="num detail-num positive">{realizedCurrencySymbol}{p.income.toFixed(2)}</td>
                                                         </tr>
                                                     ))}
                                                 </React.Fragment>
@@ -1015,23 +1031,23 @@ export function PortfolioPage() {
                                     <div className="benchmark-breakdown__grid">
                                         <div className="benchmark-breakdown__item">
                                             <span className="benchmark-breakdown__label">Total Invested</span>
-                                            <span className="benchmark-breakdown__value">${benchmarkData.total_invested.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className="benchmark-breakdown__value">{benchmarkCurrencySymbol}{benchmarkData.total_invested.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                         <div className="benchmark-breakdown__item">
                                             <span className="benchmark-breakdown__label">Current Value</span>
-                                            <span className="benchmark-breakdown__value">${benchmarkData.current_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className="benchmark-breakdown__value">{benchmarkCurrencySymbol}{benchmarkData.current_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                         <div className="benchmark-breakdown__item">
                                             <span className="benchmark-breakdown__label">Unrealized P&L</span>
-                                            <span className={`benchmark-breakdown__value ${benchmarkData.unrealized_pnl >= 0 ? 'positive' : 'negative'}`}>{benchmarkData.unrealized_pnl >= 0 ? '+' : ''}${benchmarkData.unrealized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className={`benchmark-breakdown__value ${benchmarkData.unrealized_pnl >= 0 ? 'positive' : 'negative'}`}>{benchmarkData.unrealized_pnl >= 0 ? '+' : ''}{benchmarkCurrencySymbol}{benchmarkData.unrealized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                         <div className="benchmark-breakdown__item">
                                             <span className="benchmark-breakdown__label">Realized P&L</span>
-                                            <span className={`benchmark-breakdown__value ${benchmarkData.realized_pnl >= 0 ? 'positive' : 'negative'}`}>{benchmarkData.realized_pnl >= 0 ? '+' : ''}${benchmarkData.realized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className={`benchmark-breakdown__value ${benchmarkData.realized_pnl >= 0 ? 'positive' : 'negative'}`}>{benchmarkData.realized_pnl >= 0 ? '+' : ''}{benchmarkCurrencySymbol}{benchmarkData.realized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                         <div className="benchmark-breakdown__item">
                                             <span className="benchmark-breakdown__label">Dividends</span>
-                                            <span className="benchmark-breakdown__value positive">+${benchmarkData.dividend_income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className="benchmark-breakdown__value positive">+{benchmarkCurrencySymbol}{benchmarkData.dividend_income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                         <div className="benchmark-breakdown__item benchmark-breakdown__item--total">
                                             <span className="benchmark-breakdown__label">Total Return</span>
@@ -1079,7 +1095,7 @@ export function PortfolioPage() {
                                     />
                                 </label>
                                 <label>
-                                    Avg Cost Basis ($)
+                                    Avg Cost Basis ({currencySymbol})
                                     <input
                                         type="number"
                                         placeholder="150.00"
