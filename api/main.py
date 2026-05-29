@@ -56,6 +56,22 @@ async def take_nightly_net_worth_snapshots():
             except Exception as e:
                 print(f"Failed to capture snapshot for user {user_id}: {e}")
 
+async def run_monthly_summary_cron_job():
+    from app.database import async_session
+    from sqlalchemy import select
+    from app.models import User
+    from app.email_service import run_monthly_summary_job
+    
+    async with async_session() as db:
+        result = await db.execute(select(User.id))
+        user_ids = [r[0] for r in result.all()]
+        
+        for user_id in user_ids:
+            try:
+                await run_monthly_summary_job(db, user_id)
+            except Exception as e:
+                print(f"Failed to run monthly summary job for user {user_id}: {e}")
+
 # ── App Setup ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -85,6 +101,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(run_daily_job, 'cron', hour=8, minute=0)
     # Run at 11:59 PM UTC daily for net worth snapshots
     scheduler.add_job(take_nightly_net_worth_snapshots, 'cron', hour=23, minute=59)
+    # Run at 9:00 AM UTC on the 1st of every month
+    scheduler.add_job(run_monthly_summary_cron_job, 'cron', day=1, hour=9, minute=0)
     scheduler.start()
     
     yield
