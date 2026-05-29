@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../../utils/api';
+import { storage } from '../../utils/storage';
 import { Upload, Plus, AlertCircle, CheckCircle, Search, Filter, Edit2, Check, X, Trash2, ArrowLeftRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
 import { CategorizationPopup } from './CategorizationPopup';
@@ -24,37 +25,37 @@ export function ExpensesPage() {
     const [uncategorizedExpenses, setUncategorizedExpenses] = useState<any[]>([]);
 
     const [myPreExisting, setMyPreExisting] = useState<number>(() => {
-        const val = localStorage.getItem('expenses_my_pre_existing');
+        const val = storage.getItem('expenses_my_pre_existing');
         return val ? parseFloat(val) : 0;
     });
     const [partnerPreExisting, setPartnerPreExisting] = useState<number>(() => {
-        const val = localStorage.getItem('expenses_partner_pre_existing');
+        const val = storage.getItem('expenses_partner_pre_existing');
         return val ? parseFloat(val) : 0;
     });
 
     const [myExpected, setMyExpected] = useState<number>(() => {
-        const val = localStorage.getItem('expenses_my_expected');
+        const val = storage.getItem('expenses_my_expected');
         return val ? parseFloat(val) : 0;
     });
     const [partnerExpected, setPartnerExpected] = useState<number>(() => {
-        const val = localStorage.getItem('expenses_partner_expected');
+        const val = storage.getItem('expenses_partner_expected');
         return val ? parseFloat(val) : 0;
     });
 
     useEffect(() => {
-        localStorage.setItem('expenses_my_pre_existing', myPreExisting.toString());
+        storage.setItem('expenses_my_pre_existing', myPreExisting.toString());
     }, [myPreExisting]);
 
     useEffect(() => {
-        localStorage.setItem('expenses_partner_pre_existing', partnerPreExisting.toString());
+        storage.setItem('expenses_partner_pre_existing', partnerPreExisting.toString());
     }, [partnerPreExisting]);
 
     useEffect(() => {
-        localStorage.setItem('expenses_my_expected', myExpected.toString());
+        storage.setItem('expenses_my_expected', myExpected.toString());
     }, [myExpected]);
 
     useEffect(() => {
-        localStorage.setItem('expenses_partner_expected', partnerExpected.toString());
+        storage.setItem('expenses_partner_expected', partnerExpected.toString());
     }, [partnerExpected]);
     
     // Filters state

@@ -1,7 +1,9 @@
+import { storage } from './storage';
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}) {
-    const token = localStorage.getItem('auth_token');
+    const token = storage.getItem('auth_token');
     
     const headers = new Headers(options.headers || {});
     if (token) {
@@ -22,8 +24,10 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
     
     if (response.status === 401) {
         // Handle unauthorized (could trigger logout here)
-        localStorage.removeItem('auth_token');
-        window.dispatchEvent(new Event('auth_unauthorized'));
+        storage.removeItem('auth_token');
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('auth_unauthorized'));
+        }
     }
     
     if (!response.ok) {

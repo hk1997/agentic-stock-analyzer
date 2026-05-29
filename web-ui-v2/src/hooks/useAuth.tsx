@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiFetch } from '../utils/api';
+import { storage } from '../utils/storage';
 
 export interface User {
     id: number;
@@ -23,17 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
 
     const login = (token: string, userData: User) => {
-        localStorage.setItem('auth_token', token);
+        storage.setItem('auth_token', token);
         setUser(userData);
     };
 
     const logout = () => {
-        localStorage.removeItem('auth_token');
+        storage.removeItem('auth_token');
         setUser(null);
     };
 
     const checkAuth = async () => {
-        const token = localStorage.getItem('auth_token');
+        const token = storage.getItem('auth_token');
         if (!token) {
             setIsLoading(false);
             return;

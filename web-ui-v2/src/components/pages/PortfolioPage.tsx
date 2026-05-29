@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { apiFetch } from '../../utils/api'
+import { usePortfolio } from '../../hooks/usePortfolio'
 import type { Holding } from '../../hooks/usePortfolio'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -137,149 +138,60 @@ function getCurrencySymbol(currency?: string): string {
 const COLORS = ['#00e676', '#2979ff', '#ff9100', '#e040fb', '#00e5ff', '#ffea00', '#ff1744', '#76ff03', '#d500f9', '#1de9b6']
 
 export function PortfolioPage() {
-    // Portfolio view state
-    const [viewMode, setViewMode] = useState<'personal' | 'unified'>('personal')
-    const [portfolio, setPortfolio] = useState<any>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const {
+        viewMode,
+        setViewMode,
+        portfolio,
+        loading,
+        error,
+        portfoliosList,
+        selectedPortfolioId,
+        setSelectedPortfolioId,
+        accounts,
+        realizedData,
+        realizedLoading,
+        benchmarkData,
+        benchmarkLoading,
+        addHolding,
+        updateHolding,
+        removeHolding,
+        importCsv,
+        createPortfolio,
+        linkPortfolioToAccount,
+        unlinkPortfolioFromAccount,
+        fetchRealized,
+        fetchBenchmarks,
+        refresh
+    } = usePortfolio();
 
-    const [portfoliosList, setPortfoliosList] = useState<any[]>([])
-    const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null)
-    const [accounts, setAccounts] = useState<any[]>([])
+    const fetchPortfolio = refresh;
+
     const [linkingAccountId, setLinkingAccountId] = useState<string>('')
     const [showCreatePortfolioModal, setShowCreatePortfolioModal] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState('')
-
-    const fetchPortfolio = useCallback(async () => {
-        setLoading(true)
-        setError(null)
-        try {
-            // Fetch accounts of type portfolio
-            const accountsData = await apiFetch('/api/finance/accounts').catch(() => [])
-            const portAccounts = accountsData.filter((a: any) => a.account_class === 'portfolio')
-            setAccounts(portAccounts)
-
-            if (viewMode === 'unified') {
-                const data = await apiFetch('/api/finance/unified-portfolio')
-                setPortfolio({
-                    id: 'unified',
-                    name: 'Unified Portfolio',
-                    total_value: data.total_value,
-                    total_cost: data.total_cost,
-                    total_pnl: data.total_pnl,
-                    total_pnl_pct: data.total_cost > 0 ? (data.total_pnl / data.total_cost) * 100 : 0,
-                    num_holdings: data.holdings.length,
-                    holdings: data.holdings,
-                })
-            } else {
-                const list = await apiFetch('/api/portfolio')
-                setPortfoliosList(list)
-                if (list.length > 0) {
-                    let targetId = selectedPortfolioId
-                    if (!targetId || !list.some((p: any) => p.id === targetId)) {
-                        targetId = list[0].id
-                        setSelectedPortfolioId(targetId)
-                    }
-                    const data = await apiFetch(`/api/portfolio/${targetId}`)
-                    setPortfolio(data)
-                } else {
-                    setPortfolio(null)
-                }
-            }
-        } catch (err: any) {
-            setError(err.message || 'Failed to load portfolio')
-        } finally {
-            setLoading(false)
-        }
-    }, [viewMode, selectedPortfolioId])
 
     const handlePortfolioChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const id = parseInt(e.target.value, 10)
         setSelectedPortfolioId(id)
     }
 
-    const linkPortfolioToAccount = async (portfolioId: number, accountId: number) => {
+    const handleLinkPortfolioToAccount = async (portfolioId: number, accountId: number) => {
         try {
-            await apiFetch(`/api/portfolio/${portfolioId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ account_id: accountId }),
-            })
+            await linkPortfolioToAccount(portfolioId, accountId)
             setLinkingAccountId('')
-            fetchPortfolio()
         } catch (err: any) {
-            setError(err.message || 'Failed to link portfolio to account')
+            console.error(err)
         }
     }
 
-    const unlinkPortfolioFromAccount = async (portfolioId: number) => {
-        try {
-            await apiFetch(`/api/portfolio/${portfolioId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ account_id: -1 }),
-            })
-            fetchPortfolio()
-        } catch (err: any) {
-            setError(err.message || 'Failed to unlink portfolio from account')
-        }
-    }
-
-    const createPortfolio = async (name: string) => {
+    const handleCreatePortfolio = async (name: string) => {
         if (!name.trim()) return
         try {
-            const newPort = await apiFetch('/api/portfolio', {
-                method: 'POST',
-                body: JSON.stringify({ name }),
-            })
+            await createPortfolio(name)
             setNewPortfolioName('')
             setShowCreatePortfolioModal(false)
-            setSelectedPortfolioId(newPort.id)
         } catch (err: any) {
-            setError(err.message || 'Failed to create portfolio')
-        }
-    }
-
-    useEffect(() => {
-        fetchPortfolio()
-    }, [fetchPortfolio])
-
-    // Holding mutations for personal view
-    const addHolding = async (ticker: string, shares: number, avgCostBasis: number) => {
-        if (viewMode === 'unified' || !portfolio?.id) return
-        await apiFetch(`/api/portfolio/${portfolio.id}/holdings`, {
-            method: 'POST',
-            body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
-        })
-        fetchPortfolio()
-    }
-
-    const updateHolding = async (holdingId: number, ticker: string, shares: number, avgCostBasis: number) => {
-        if (viewMode === 'unified' || !portfolio?.id) return
-        await apiFetch(`/api/portfolio/${portfolio.id}/holdings/${holdingId}`, {
-            method: 'PUT',
-            body: JSON.stringify({ ticker, shares, avg_cost_basis: avgCostBasis }),
-        })
-        fetchPortfolio()
-    }
-
-    const removeHolding = async (holdingId: number) => {
-        if (viewMode === 'unified' || !portfolio?.id) return
-        await apiFetch(`/api/portfolio/${portfolio.id}/holdings/${holdingId}`, { method: 'DELETE' })
-        fetchPortfolio()
-    }
-
-    const importCsv = async (file: File) => {
-        if (viewMode === 'unified' || !portfolio?.id) return null
-        const formData = new FormData()
-        formData.append('file', file)
-        try {
-            const data = await apiFetch(`/api/portfolio/${portfolio.id}/import/csv`, {
-                method: 'POST',
-                body: formData,
-            })
-            if (!data.error) fetchPortfolio()
-            return data
-        } catch (e: any) {
-            return { error: e.message || 'Server error' }
+            console.error(err)
         }
     }
 
@@ -291,13 +203,9 @@ export function PortfolioPage() {
 
     // Tab state
     const [activeTab, setActiveTab] = useState<TabId>('holdings')
-    const [realizedData, setRealizedData] = useState<RealizedData | null>(null)
-    const [realizedLoading, setRealizedLoading] = useState(false)
     const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set())
 
     // Benchmark state
-    const [benchmarkData, setBenchmarkData] = useState<BenchmarkData | null>(null)
-    const [benchmarkLoading, setBenchmarkLoading] = useState(false)
     const [benchmarkPeriod, setBenchmarkPeriod] = useState<keyof BenchmarkReturns>('since_inception')
 
     // Sort state for each tab
@@ -337,35 +245,11 @@ export function PortfolioPage() {
     const realizedCurrencySymbol = getCurrencySymbol(realizedData?.currency || portfolio?.currency)
     const benchmarkCurrencySymbol = getCurrencySymbol(benchmarkData?.currency || portfolio?.currency)
 
-    // Fetch realized data when tab switches
-    const fetchRealized = useCallback(async () => {
-        const pid = portfolio?.id
-        if (!pid) return
-        setRealizedLoading(true)
-        try {
-            const data = await apiFetch(`/api/portfolio/${pid}/realized`)
-            setRealizedData(data)
-        } catch { /* ignore */ }
-        setRealizedLoading(false)
-    }, [portfolio?.id])
-
     useEffect(() => {
         if ((activeTab === 'realized' || activeTab === 'dividends') && !realizedData) {
             fetchRealized()
         }
     }, [activeTab, realizedData, fetchRealized])
-
-    // Fetch benchmarks data when tab switches
-    const fetchBenchmarks = useCallback(async () => {
-        if (!portfolio?.id) return
-        setBenchmarkLoading(true)
-        try {
-            const data = await apiFetch(`/api/portfolio/${portfolio.id}/benchmarks`)
-            if (!data.error) setBenchmarkData(data)
-        } catch { /* ignore */ } finally {
-            setBenchmarkLoading(false)
-        }
-    }, [portfolio?.id])
 
     useEffect(() => {
         if (activeTab === 'benchmarks' && !benchmarkData) fetchBenchmarks()
@@ -374,7 +258,11 @@ export function PortfolioPage() {
     const toggleExpand = (ticker: string) => {
         setExpandedTickers(prev => {
             const next = new Set(prev)
-            next.has(ticker) ? next.delete(ticker) : next.add(ticker)
+            if (next.has(ticker)) {
+                next.delete(ticker)
+            } else {
+                next.add(ticker)
+            }
             return next
         })
     }
@@ -563,7 +451,7 @@ export function PortfolioPage() {
                                             <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#00e676' }}></span>
                                             Linked to account: <strong>{portfolio.account_name}</strong>
                                             <button
-                                                onClick={() => unlinkPortfolioFromAccount(portfolio.id)}
+                                                onClick={() => unlinkPortfolioFromAccount(portfolio.id as number)}
                                                 style={{
                                                     background: 'none',
                                                     border: 'none',
@@ -617,7 +505,7 @@ export function PortfolioPage() {
                                                     ))}
                                                 </select>
                                                 <button
-                                                    onClick={() => linkingAccountId && linkPortfolioToAccount(portfolio.id, parseInt(linkingAccountId, 10))}
+                                                    onClick={() => linkingAccountId && handleLinkPortfolioToAccount(portfolio.id as number, parseInt(linkingAccountId, 10))}
                                                     disabled={!linkingAccountId}
                                                     className="btn btn--primary"
                                                     style={{
@@ -996,7 +884,7 @@ export function PortfolioPage() {
                                                     </td>
                                                 })}
                                             </tr>
-                                            {benchmarkData.benchmarks.map(bm => (
+                                            {benchmarkData.benchmarks.map((bm: any) => (
                                                 <tr key={bm.ticker}>
                                                     <td>{bm.name}</td>
                                                     {(['1m', '3m', '6m', 'ytd', '1y', 'since_inception'] as (keyof BenchmarkReturns)[]).map(key => {
@@ -1134,7 +1022,7 @@ export function PortfolioPage() {
                                         onChange={e => setNewPortfolioName(e.target.value)}
                                         onKeyDown={e => {
                                             if (e.key === 'Enter') {
-                                                createPortfolio(newPortfolioName)
+                                                handleCreatePortfolio(newPortfolioName)
                                             }
                                         }}
                                     />
@@ -1144,7 +1032,7 @@ export function PortfolioPage() {
                                 <button className="btn btn--secondary" onClick={() => setShowCreatePortfolioModal(false)}>Cancel</button>
                                 <button 
                                     className="btn btn--primary" 
-                                    onClick={() => createPortfolio(newPortfolioName)}
+                                    onClick={() => handleCreatePortfolio(newPortfolioName)}
                                     disabled={!newPortfolioName.trim()}
                                 >
                                     Create
