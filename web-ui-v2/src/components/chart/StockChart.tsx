@@ -143,7 +143,7 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
         // Clean up previous series
         Object.values(seriesRef.current).forEach((series: any) => {
-            try { if (series.chart) series.chart.removeSeries(series.handle); } catch (e) { }
+            try { if (series.chart) series.chart.removeSeries(series.handle); } catch (e) { /* series might already be removed */ }
         });
         seriesRef.current = {};
 
