@@ -1773,3 +1773,27 @@ async def delete_contribution(
     await db.commit()
     return {"status": "success"}
 
+@router.post("/send-monthly-summary")
+async def send_monthly_summary(
+    current_user: Annotated[User, Depends(get_current_user)],
+    month: str | None = None, # format: YYYY-MM
+    db: AsyncSession = Depends(get_db_session)
+):
+    import re
+    import os
+    if month:
+        if not re.match(r"^\d{4}-\d{2}$", month):
+            raise HTTPException(status_code=400, detail="Invalid month format, expected YYYY-MM")
+    else:
+        import datetime
+        month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
+        
+    from app.email_service import run_monthly_summary_job
+    success = await run_monthly_summary_job(db, current_user.id, month)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to generate or send the monthly summary email.")
+        
+    recipient = os.getenv("RECIPIENT_EMAIL") or current_user.email
+    return {"status": "success", "message": "Monthly summary email sent successfully.", "recipient": recipient, "month": month}
+
