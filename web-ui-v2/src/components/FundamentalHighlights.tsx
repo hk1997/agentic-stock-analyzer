@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { apiFetch } from '../utils/api';
 import './FundamentalHighlights.css';
 
 interface FundamentalHighlightsProps {
@@ -31,12 +32,11 @@ export default function FundamentalHighlights({ ticker }: FundamentalHighlightsP
             setLoading(true);
             setError(null);
             try {
-                const resp = await fetch(`http://localhost:8000/api/fundamentals/${ticker}/${activeTab}`);
-                const result = await resp.json();
+                const result = await apiFetch(`/api/fundamentals/${ticker}/${activeTab}`);
 
                 if (isMounted) {
-                    if (!resp.ok || result.error) {
-                        setError(result.error || `HTTP Error ${resp.status}`);
+                    if (result.error) {
+                        setError(result.error);
                     } else {
                         setData(prev => ({ ...prev, [activeTab]: result.markdown }));
                     }

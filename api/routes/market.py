@@ -340,7 +340,7 @@ async def get_fundamental_competitors(ticker: str):
 async def get_recent_news(ticker: str):
     """Fetches recent news articles for the ticker using DuckDuckGo search."""
     try:
-        from ddgs import DDGS
+        from duckduckgo_search import DDGS
         import concurrent.futures
         
         def _fetch_news():
@@ -366,7 +366,7 @@ async def get_news_sentiment(ticker: str):
     try:
         from app.llm import get_llm
         from langchain_core.messages import HumanMessage
-        from ddgs import DDGS
+        from duckduckgo_search import DDGS
         import concurrent.futures
         
         def _generate_sentiment():

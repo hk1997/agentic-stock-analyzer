@@ -3,19 +3,34 @@ version: '3.8'
 services:
   valkey:
     image: valkey/valkey:8.0
+    container_name: stock-valkey
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
     volumes:
       - valkey_data:/data
 
   timescaledb:
     image: timescale/timescaledb:latest-pg15
+    container_name: stock-db
+    restart: unless-stopped
     ports:
       - "5433:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password # Local dev
+      POSTGRES_PASSWORD: password
       POSTGRES_DB: stock_analyzer
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=20"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
 
@@ -23,19 +38,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: stock-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
-    volumes:
-      - ./app:/app/app
-      - ./api:/app/api
-      - ./main.py:/app/main.py
+    command: ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     env_file:
-      - secrets.env
+      - .env
     environment:
-      - PORT=8000
-      - HOST=0.0.0.0
       - VALKEY_URL=redis://valkey:6379/0
       - DATABASE_URL=postgresql+asyncpg://postgres:password@timescaledb:5432/stock_analyzer
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
     depends_on:
       - valkey
       - timescaledb
@@ -44,35 +61,21 @@ services:
     build:
       context: ./web-ui-v2
       dockerfile: Dockerfile
+    container_name: stock-ui
+    restart: unless-stopped
     ports:
       - "5173:5173"
-    volumes:
-      - ./web-ui-v2/src:/app/src
-      - ./web-ui-v2/public:/app/public
-      - ./web-ui-v2/vite.config.ts:/app/vite.config.ts
     environment:
       - API_URL=http://api:8000
       - VITE_API_URL=${VITE_API_URL}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
     depends_on:
       - api
-
-  adminer:
-    image: adminer
-    ports:
-      - "8080:8080"
-    depends_on:
-      - timescaledb
-
-  redisinsight:
-    image: redis/redisinsight:latest
-    ports:
-      - "5540:5540"
-    volumes:
-      - redisinsight_data:/data
-    depends_on:
-      - valkey
 
 volumes:
   valkey_data:
   timescaledb_data:
-  redisinsight_data:
