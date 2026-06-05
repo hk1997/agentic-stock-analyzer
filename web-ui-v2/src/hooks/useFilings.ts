@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 
 export interface Filing {
     form: string;
@@ -27,8 +28,7 @@ export function useFilings(ticker: string) {
 
             // 1. Fetch fast metadata
             try {
-                const metaRes = await fetch(`http://localhost:8000/api/filings/${ticker}`);
-                const metaData = await metaRes.json();
+                const metaData = await apiFetch(`/api/filings/${ticker}`);
                 if (metaData.error) throw new Error(metaData.error);
                 if (isMounted) setFilings(metaData.filings || []);
             } catch (err) {
@@ -39,13 +39,10 @@ export function useFilings(ticker: string) {
 
             // 2. Fetch slower AI extracted content (MD&A and Risks)
             try {
-                const [mdaRes, riskRes] = await Promise.all([
-                    fetch(`http://localhost:8000/api/filings/${ticker}/mda`),
-                    fetch(`http://localhost:8000/api/filings/${ticker}/risks`)
+                const [mdaData, riskData] = await Promise.all([
+                    apiFetch(`/api/filings/${ticker}/mda`),
+                    apiFetch(`/api/filings/${ticker}/risks`)
                 ]);
-
-                const mdaData = await mdaRes.json();
-                const riskData = await riskRes.json();
 
                 if (isMounted) {
                     if (!mdaData.error) setMdaText(mdaData.markdown);

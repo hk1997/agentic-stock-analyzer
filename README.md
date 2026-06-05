@@ -90,13 +90,26 @@ DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/stock_analyze
 ```
 
 ### Launch with Docker Compose
-To run the entire system locally:
+
+#### Standard Local Development
+To run the entire system locally with hot-reloading active:
 ```bash
 docker-compose up --build
 ```
 *   **Frontend UI:** `http://localhost:5173`
 *   **FastAPI Swagger Docs:** `http://localhost:8000/docs`
 *   **Adminer DB Client:** `http://localhost:8080`
+
+#### Persistent Low-Resource Background Run
+If you want to run the stack persistently on your laptop with restricted CPU/memory limits and without CPU-heavy hot-reloading file-watchers:
+```bash
+# Start in the background
+make docker-persistent-up
+
+# Stop the stack
+make docker-persistent-down
+```
+This runs the stack using `docker-compose.persistent.yml`, capping total memory and CPU resources.
 
 ### Running Tests
 Execute python unit and integration tests using Poetry:

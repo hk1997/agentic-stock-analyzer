@@ -1,3 +1,6 @@
+# Auto-detect local network IP address (macOS first, then Linux fallback)
+LOCAL_IP := $(shell ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I | awk '{print $$1}' 2>/dev/null || echo "localhost")
+
 .PHONY: setup dev-api dev-ui test lint clean refresh docker-dev docker-down docker-clean
 
 # ── Setup ──────────────────────────────────────────────────
@@ -18,8 +21,9 @@ dev-ui:
 
 # ── Docker Development ─────────────────────────────────────
 docker-dev:
+	@echo "Detected Local IP: $(LOCAL_IP)"
 	@echo "Starting Docker Compose environment..."
-	docker-compose --env-file /dev/null up --build
+	VITE_API_URL=http://$(LOCAL_IP):8000 docker-compose --env-file /dev/null up --build
 
 docker-down:
 	@echo "Stopping Docker Compose environment..."
@@ -28,6 +32,17 @@ docker-down:
 docker-clean:
 	@echo "Stopping Docker Compose and cleaning volumes..."
 	docker-compose --env-file /dev/null down -v
+
+docker-persistent-up:
+	@echo "Detected Local IP: $(LOCAL_IP)"
+	@echo "Starting persistent Docker Compose environment in the background..."
+	VITE_API_URL=http://$(LOCAL_IP):8000 docker-compose -f docker-compose.persistent.yml up -d
+
+docker-persistent-down:
+	@echo "Stopping persistent Docker Compose environment..."
+	docker-compose -f docker-compose.persistent.yml down
+
+
 
 # ── Tests & Linting ────────────────────────────────────────
 test:

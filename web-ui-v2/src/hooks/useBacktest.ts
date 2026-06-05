@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '../utils/api';
 
 export interface Trade {
     date: string;
@@ -46,12 +47,10 @@ export function useBacktest() {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch('http://localhost:8000/api/backtest', {
+            const data = await apiFetch('/api/backtest', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(params),
             });
-            const data = await response.json();
             if (data.error) {
                 setError(data.error);
                 setResults(null);

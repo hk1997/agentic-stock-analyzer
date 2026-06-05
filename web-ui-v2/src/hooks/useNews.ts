@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 
 export interface NewsArticle {
     title: string;
@@ -27,8 +28,7 @@ export function useNews(ticker: string) {
             setError(null);
             try {
                 // Fetch raw news first for speed
-                const newsRes = await fetch(`http://localhost:8000/api/news/${ticker}`);
-                const newsData = await newsRes.json();
+                const newsData = await apiFetch(`/api/news/${ticker}`);
 
                 if (newsData.error) throw new Error(newsData.error);
 
@@ -57,8 +57,7 @@ export function useNews(ticker: string) {
                 }
 
                 // In background, fetch the LLM sentiment summary
-                const sentimentRes = await fetch(`http://localhost:8000/api/news/${ticker}/sentiment`);
-                const sentimentData = await sentimentRes.json();
+                const sentimentData = await apiFetch(`/api/news/${ticker}/sentiment`);
 
                 if (!sentimentData.error && isMounted) {
                     setNews(prev => prev ? {

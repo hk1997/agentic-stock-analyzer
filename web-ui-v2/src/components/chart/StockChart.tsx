@@ -5,6 +5,8 @@ import type { IndicatorPoint } from '../../hooks/useIndicators';
 import type { BacktestResult } from '../../hooks/useBacktest';
 import { TrendingUp, TrendingDown, Settings2 } from 'lucide-react';
 
+import { apiFetch } from '../../utils/api';
+
 interface StockChartProps {
     ticker: string;
     price: number;
@@ -44,8 +46,7 @@ export function StockChart({ ticker, price, change, changePct, history, indicato
 
     useEffect(() => {
         if (!ticker) return;
-        fetch(`http://localhost:8000/api/levels/${ticker}`)
-            .then(res => res.json())
+        apiFetch(`/api/levels/${ticker}`)
             .then(data => {
                 if (!data.error) setLevels(data);
             })
