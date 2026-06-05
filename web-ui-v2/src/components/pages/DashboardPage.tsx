@@ -62,8 +62,8 @@ export function DashboardPage() {
     if (isLoading) return <div className="page-container">Loading your financial summary...</div>;
 
     return (
-        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <main className="main-content">
+            <header className="header" style={{ alignItems: 'flex-end' }}>
                 <div>
                     <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Welcome back, {user?.name || user?.email.split('@')[0]}</h1>
                     <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0 0 0' }}>Here's your 360° financial overview.</p>
@@ -71,7 +71,7 @@ export function DashboardPage() {
             </header>
 
             {/* Quick Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem' }}>
+            <div className="stats-grid">
                 <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '1rem', fontWeight: '500' }}>Total Net Worth</h3>
@@ -112,7 +112,7 @@ export function DashboardPage() {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+            <div className="dashboard-layout-grid">
                 <div className="glass-panel" style={{ padding: '1.5rem', height: '400px' }}>
                     <h3 style={{ margin: '0 0 1.5rem 0' }}>Net Worth Trajectory</h3>
                     <ResponsiveContainer width="100%" height="100%">

@@ -282,13 +282,13 @@ export function NetWorthPage() {
     const liabilityAccounts = accounts.filter(a => a.classification === 'liability');
 
     return (
-        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <main className="main-content">
             <header>
                 <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Net Worth</h1>
                 <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0 0 0' }}>Track your total assets, liabilities, and accounts in any currency</p>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem' }}>
+            <div className="networth-layout-grid">
                 {/* Left Column */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     {/* Net Worth KPI Card */}
@@ -548,7 +548,7 @@ export function NetWorthPage() {
                                 />
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div className="grid-2-col">
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                     <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Class</label>
                                     <select 
@@ -579,7 +579,7 @@ export function NetWorthPage() {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div className="grid-2-col">
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                     <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Currency</label>
                                     <select 
@@ -713,21 +713,10 @@ export function NetWorthPage() {
 
             {/* Slide-over Ledger Drawer */}
             {selectedAccount && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    right: 0,
-                    width: '450px',
-                    height: '100vh',
-                    background: 'rgba(15, 23, 42, 0.95)',
-                    backdropFilter: 'blur(20px)',
-                    borderLeft: '1px solid var(--glass-border)',
-                    boxShadow: '-10px 0 30px rgba(0, 0, 0, 0.5)',
-                    zIndex: 1000,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    animation: 'slideIn 0.3s ease-out'
-                }}>
+                <>
+                    <div className="drawer-backdrop" onClick={() => setSelectedAccount(null)} />
+                    <div className="details-drawer">
+                        <div className="drawer-handle" />
                     {/* Drawer Header */}
                     <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
@@ -790,7 +779,7 @@ export function NetWorthPage() {
                                         </select>
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                    <div className="grid-2-col">
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                             <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Type</label>
                                             <select 
@@ -815,7 +804,7 @@ export function NetWorthPage() {
                                     </div>
                                 )}
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                <div className="grid-2-col">
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                         <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Amount ({selectedAccount.currency})</label>
                                         <input 
@@ -910,6 +899,7 @@ export function NetWorthPage() {
 
                     </div>
                 </div>
+                </>
             )}
         </main>
     );

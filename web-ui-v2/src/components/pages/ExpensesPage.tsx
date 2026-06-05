@@ -358,7 +358,7 @@ export function ExpensesPage() {
 
     return (
         <>
-        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <main className="main-content">
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                     <h1 style={{ margin: 0, color: 'var(--text-primary)' }}>Expenses</h1>
@@ -415,7 +415,7 @@ export function ExpensesPage() {
             </header>
 
             {/* Stat Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
+            <div className="expenses-kpi-grid">
                 <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Total Expenses (Filtered)</span>
                     <span style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
@@ -443,7 +443,7 @@ export function ExpensesPage() {
             </div>
 
             {/* Visual Insights Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+            <div className="stats-grid" style={{ marginTop: '1.5rem' }}>
                 {/* Panel 1: Category Allocation (Bar + Pie Chart side-by-side) */}
                 <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', height: '350px' }}>
                     <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Category Allocation</h3>
@@ -555,7 +555,7 @@ export function ExpensesPage() {
                         <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Split & Settle Up</h3>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+                    <div className="stats-grid">
                         {/* 1. Joint Split */}
                         <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.04)', borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)', fontWeight: 500 }}>
@@ -596,7 +596,7 @@ export function ExpensesPage() {
                             <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '0.75rem', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Expected Base Contributions</span>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                    <div className="grid-2-col">
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                             <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>You expect to add</label>
                                             <input 
@@ -624,7 +624,7 @@ export function ExpensesPage() {
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.03)', paddingTop: '0.5rem' }}>
                                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Pre-existing / External Payments</span>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                    <div className="grid-2-col">
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                             <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Paid by You</label>
                                             <input 
@@ -714,7 +714,7 @@ export function ExpensesPage() {
                 </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem', marginTop: '1.5rem' }}>
+            <div className="expenses-layout-grid">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     {/* Filters Bar */}
                     <div className="glass-panel" style={{ padding: '1rem 1.5rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
@@ -795,7 +795,7 @@ export function ExpensesPage() {
                             {filteredExpenses.length === 0 ? (
                                 <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem' }}>No expenses found.</div>
                             ) : (
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                                <table className="responsive-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                                     <thead>
                                         <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-secondary)' }}>
                                             <th style={{ padding: '0.75rem 0.5rem' }}>Date</th>
@@ -813,23 +813,23 @@ export function ExpensesPage() {
                                                 <tr key={i} style={{ borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }}>
                                                     {isEditing ? (
                                                         <>
-                                                            <td style={{ padding: '0.5rem' }}>
+                                                            <td data-label="Date" style={{ padding: '0.5rem' }}>
                                                                 <input 
                                                                     type="date" 
                                                                     value={editDate} 
                                                                     onChange={opt => setEditDate(opt.target.value)} 
-                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '130px' }}
+                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100%' }}
                                                                 />
                                                             </td>
-                                                            <td style={{ padding: '0.5rem' }}>
+                                                            <td data-label="Category" style={{ padding: '0.5rem' }}>
                                                                 <input 
                                                                     type="text" 
                                                                     value={editCategory} 
                                                                     onChange={opt => setEditCategory(opt.target.value)} 
-                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100px' }}
+                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100%' }}
                                                                 />
                                                             </td>
-                                                            <td style={{ padding: '0.5rem' }}>
+                                                            <td data-label="Description" style={{ padding: '0.5rem' }}>
                                                                 <input 
                                                                     type="text" 
                                                                     value={editDescription} 
@@ -837,27 +837,27 @@ export function ExpensesPage() {
                                                                     style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100%' }}
                                                                 />
                                                             </td>
-                                                            <td style={{ padding: '0.5rem' }}>
+                                                            <td data-label="Type" style={{ padding: '0.5rem' }}>
                                                                 <select 
                                                                     value={editType} 
                                                                     onChange={opt => setEditType(opt.target.value)} 
-                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '130px', cursor: 'pointer' }}
+                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100%', cursor: 'pointer' }}
                                                                 >
                                                                     <option value="my-personal">My Personal</option>
                                                                     <option value="linked-personal">Linked Personal</option>
                                                                     <option value="joint">Joint</option>
                                                                 </select>
                                                             </td>
-                                                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>
+                                                            <td data-label="Amount" style={{ padding: '0.5rem', textAlign: 'right' }}>
                                                                 <input 
                                                                     type="number" 
                                                                     step="0.01" 
                                                                     value={editAmount} 
                                                                     onChange={opt => setEditAmount(opt.target.value)} 
-                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '80px', textAlign: 'right' }}
+                                                                    style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '0.3rem 0.5rem', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '0.85rem', width: '100%', textAlign: 'right' }}
                                                                 />
                                                             </td>
-                                                            <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                                            <td data-label="Actions" style={{ padding: '0.5rem', textAlign: 'center' }}>
                                                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
                                                                     <button onClick={() => handleSaveEdit(e.id)} className="icon-btn" title="Save" style={{ color: 'var(--bullish)' }}>
                                                                         <Check size={16} />
@@ -870,14 +870,14 @@ export function ExpensesPage() {
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-primary)' }}>{new Date(e.date).toLocaleDateString()}</td>
-                                                            <td style={{ padding: '0.75rem 0.5rem' }}>
+                                                            <td data-label="Date" style={{ padding: '0.75rem 0.5rem', color: 'var(--text-primary)' }}>{new Date(e.date).toLocaleDateString()}</td>
+                                                            <td data-label="Category" style={{ padding: '0.75rem 0.5rem' }}>
                                                                 <span style={{ background: 'rgba(10, 132, 255, 0.15)', color: 'var(--accent-blue)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
                                                                     {e.category}
                                                                 </span>
                                                             </td>
-                                                            <td style={{ padding: '0.75rem 0.5rem', color: 'var(--text-primary)' }}>{e.description || '-'}</td>
-                                                            <td style={{ padding: '0.75rem 0.5rem' }}>
+                                                            <td data-label="Description" style={{ padding: '0.75rem 0.5rem', color: 'var(--text-primary)' }}>{e.description || '-'}</td>
+                                                            <td data-label="Type" style={{ padding: '0.75rem 0.5rem' }}>
                                                                 {e.is_joint ? (
                                                                     <span style={{ color: 'var(--accent-purple)', fontSize: '0.8rem' }}>
                                                                         Joint ({e.payer_id === user?.id ? 'Paid by Me' : 'Paid by Partner'})
@@ -892,10 +892,10 @@ export function ExpensesPage() {
                                                                     </span>
                                                                 )}
                                                             </td>
-                                                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                                                            <td data-label="Amount" style={{ padding: '0.75rem 0.5rem', textAlign: 'right', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                                                                 ${e.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
                                                             </td>
-                                                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                                                            <td data-label="Actions" style={{ padding: '0.75rem 0.5rem', textAlign: 'center' }}>
                                                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
                                                                     <button onClick={() => startEditing(e)} className="icon-btn" title="Edit">
                                                                         <Edit2 size={16} />
