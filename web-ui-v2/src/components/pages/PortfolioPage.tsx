@@ -608,7 +608,7 @@ export function PortfolioPage() {
                             <h2 className="portfolio-card__title"><Briefcase size={18} /> Holdings</h2>
                             {portfolio && portfolio.holdings.length > 0 ? (
                                 <div className="holdings-table-wrapper">
-                                    <table className="holdings-table">
+                                    <table className="holdings-table responsive-table">
                                         <thead>
                                             <tr>
                                                 <SortableHeader label="Ticker" sortKey="ticker" sort={holdingSort} onSort={k => setHoldingSort(toggleSort(holdingSort, k))} />
@@ -627,20 +627,20 @@ export function PortfolioPage() {
                                         <tbody>
                                             {sortedHoldings.map(h => (
                                                 <tr key={h.id}>
-                                                    <td className="ticker-cell">{h.ticker}</td>
-                                                    <td className="name-cell">{h.name}</td>
-                                                    <td className="sector-cell">{h.sector}</td>
-                                                    <td className="num">{h.shares}</td>
-                                                    <td className="num">{currencySymbol}{h.avg_cost_basis.toFixed(2)}</td>
-                                                    <td className="num">{currencySymbol}{h.current_price.toFixed(2)}</td>
-                                                    <td className="num">{currencySymbol}{h.current_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td className={`num ${h.unrealized_pnl >= 0 ? 'positive' : 'negative'}`}>
+                                                    <td className="ticker-cell" data-label="Ticker">{h.ticker}</td>
+                                                    <td className="name-cell" data-label="Name">{h.name}</td>
+                                                    <td className="sector-cell" data-label="Sector">{h.sector}</td>
+                                                    <td className="num" data-label="Shares">{h.shares}</td>
+                                                    <td className="num" data-label="Avg Cost">{currencySymbol}{h.avg_cost_basis.toFixed(2)}</td>
+                                                    <td className="num" data-label="Price">{currencySymbol}{h.current_price.toFixed(2)}</td>
+                                                    <td className="num" data-label="Value">{currencySymbol}{h.current_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                    <td className={`num ${h.unrealized_pnl >= 0 ? 'positive' : 'negative'}`} data-label="P&L">
                                                         {h.unrealized_pnl >= 0 ? '+' : ''}{currencySymbol}{h.unrealized_pnl.toFixed(2)}
                                                     </td>
-                                                    <td className={`num ${h.unrealized_pnl_pct >= 0 ? 'positive' : 'negative'}`}>
+                                                    <td className={`num ${h.unrealized_pnl_pct >= 0 ? 'positive' : 'negative'}`} data-label="P&L %">
                                                         {h.unrealized_pnl_pct >= 0 ? '+' : ''}{h.unrealized_pnl_pct.toFixed(2)}%
                                                     </td>
-                                                    <td className="num">{h.weight_pct.toFixed(1)}%</td>
+                                                    <td className="num" data-label="Weight">{h.weight_pct.toFixed(1)}%</td>
                                                     <td className="actions-cell">
                                                         {viewMode === 'personal' && (
                                                             <>
@@ -712,7 +712,7 @@ export function PortfolioPage() {
                                     </div>
                                 </div>
                                 <div className="holdings-table-wrapper">
-                                    <table className="holdings-table">
+                                    <table className="holdings-table responsive-table">
                                         <thead>
                                             <tr>
                                                 <th style={{ width: 30 }}></th>
@@ -729,24 +729,24 @@ export function PortfolioPage() {
                                                 <React.Fragment key={r.ticker}>
                                                     <tr className="expandable-row" onClick={() => toggleExpand('r_' + r.ticker)}>
                                                         <td>{expandedTickers.has('r_' + r.ticker) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
-                                                        <td className="ticker-cell">{r.ticker}</td>
-                                                        <td className="name-cell">{r.name}</td>
-                                                        <td className="num">{r.num_trades}</td>
-                                                        <td className="num">{r.total_shares_sold.toFixed(2)}</td>
-                                                        <td className="num">{realizedCurrencySymbol}{r.total_proceeds.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                        <td className={`num ${r.total_realized_pnl >= 0 ? 'positive' : 'negative'}`}>
+                                                        <td className="ticker-cell" data-label="Ticker">{r.ticker}</td>
+                                                        <td className="name-cell" data-label="Name">{r.name}</td>
+                                                        <td className="num" data-label="Trades">{r.num_trades}</td>
+                                                        <td className="num" data-label="Shares Sold">{r.total_shares_sold.toFixed(2)}</td>
+                                                        <td className="num" data-label="Total Proceeds">{realizedCurrencySymbol}{r.total_proceeds.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                                        <td className={`num ${r.total_realized_pnl >= 0 ? 'positive' : 'negative'}`} data-label="Realized P&L">
                                                             {r.total_realized_pnl >= 0 ? '+' : ''}{realizedCurrencySymbol}{r.total_realized_pnl.toFixed(2)}
                                                         </td>
                                                     </tr>
                                                     {expandedTickers.has('r_' + r.ticker) && r.trades.map((t, i) => (
                                                         <tr key={i} className="detail-row">
                                                             <td></td>
-                                                            <td className="detail-date">{t.date}</td>
+                                                            <td className="detail-date" data-label="Date">{t.date}</td>
                                                             <td></td>
-                                                            <td className="num detail-num">{t.shares.toFixed(4)}</td>
-                                                            <td className="num detail-num">{realizedCurrencySymbol}{t.price.toFixed(2)}</td>
-                                                            <td className="num detail-num">{realizedCurrencySymbol}{t.proceeds.toFixed(2)}</td>
-                                                            <td className={`num detail-num ${t.pnl >= 0 ? 'positive' : 'negative'}`}>
+                                                            <td className="num detail-num" data-label="Shares">{t.shares.toFixed(4)}</td>
+                                                            <td className="num detail-num" data-label="Price">{realizedCurrencySymbol}{t.price.toFixed(2)}</td>
+                                                            <td className="num detail-num" data-label="Proceeds">{realizedCurrencySymbol}{t.proceeds.toFixed(2)}</td>
+                                                            <td className={`num detail-num ${t.pnl >= 0 ? 'positive' : 'negative'}`} data-label="P&L">
                                                                 {t.pnl >= 0 ? '+' : ''}{realizedCurrencySymbol}{t.pnl.toFixed(2)}
                                                             </td>
                                                         </tr>
@@ -778,7 +778,7 @@ export function PortfolioPage() {
                                     </div>
                                 </div>
                                 <div className="holdings-table-wrapper">
-                                    <table className="holdings-table">
+                                    <table className="holdings-table responsive-table">
                                         <thead>
                                             <tr>
                                                 <th style={{ width: 30 }}></th>
@@ -793,18 +793,18 @@ export function PortfolioPage() {
                                                 <React.Fragment key={d.ticker}>
                                                     <tr className="expandable-row" onClick={() => toggleExpand('d_' + d.ticker)}>
                                                         <td>{expandedTickers.has('d_' + d.ticker) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
-                                                        <td className="ticker-cell">{d.ticker}</td>
-                                                        <td className="name-cell">{d.name}</td>
-                                                        <td className="num">{d.num_payments}</td>
-                                                        <td className="num positive">{realizedCurrencySymbol}{d.total_income.toFixed(2)}</td>
+                                                        <td className="ticker-cell" data-label="Ticker">{d.ticker}</td>
+                                                        <td className="name-cell" data-label="Name">{d.name}</td>
+                                                        <td className="num" data-label="Payments">{d.num_payments}</td>
+                                                        <td className="num positive" data-label="Total Income">{realizedCurrencySymbol}{d.total_income.toFixed(2)}</td>
                                                     </tr>
                                                     {expandedTickers.has('d_' + d.ticker) && d.payments.map((p, i) => (
                                                         <tr key={i} className="detail-row">
                                                             <td></td>
-                                                            <td className="detail-date">{p.date}</td>
-                                                            <td className="detail-num">{p.shares.toFixed(2)} shares @ {realizedCurrencySymbol}{p.per_share.toFixed(4)}</td>
+                                                            <td className="detail-date" data-label="Date">{p.date}</td>
+                                                            <td className="detail-num" data-label="Info">{p.shares.toFixed(2)} shares @ {realizedCurrencySymbol}{p.per_share.toFixed(4)}</td>
                                                             <td></td>
-                                                            <td className="num detail-num positive">{realizedCurrencySymbol}{p.income.toFixed(2)}</td>
+                                                            <td className="num detail-num positive" data-label="Income">{realizedCurrencySymbol}{p.income.toFixed(2)}</td>
                                                         </tr>
                                                     ))}
                                                 </React.Fragment>

@@ -634,7 +634,7 @@ export function GoalsPage() {
                         </button>
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1.5rem' }}>
+                    <div className="goals-grid">
                         {goals.map(goal => {
                             // Calculate remaining balance
                             const remaining = goal.target_amount - goal.total_saved
@@ -785,35 +785,32 @@ export function GoalsPage() {
 
             {/* DETAIL DRAWER / SLIDE-IN PANEL */}
             {activeDetailGoal && (
-                <div style={{
-                    position: 'fixed', top: 0, right: 0, width: '480px', height: '100vh',
-                    background: 'rgba(10, 10, 20, 0.95)', borderLeft: '1px solid var(--glass-border)',
-                    boxShadow: '-10px 0 30px rgba(0,0,0,0.5)', zIndex: 100, padding: '2rem',
-                    display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto',
-                    backdropFilter: 'blur(20px)', animation: 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}>
-                    {/* Header */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem' }}>
-                        <div>
-                            <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>{activeDetailGoal.title}</h2>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Goal Insights & Transaction Ledger</p>
+                <>
+                    <div className="drawer-backdrop" onClick={() => setActiveDetailGoal(null)} />
+                    <div className="details-drawer">
+                        <div className="drawer-handle" />
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem' }}>
+                            <div>
+                                <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>{activeDetailGoal.title}</h2>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Goal Insights & Transaction Ledger</p>
+                            </div>
+                            <button className="icon-btn" onClick={() => setActiveDetailGoal(null)} style={{ padding: '0.5rem', borderRadius: '50%' }}>
+                                <X size={20} />
+                            </button>
                         </div>
-                        <button className="icon-btn" onClick={() => setActiveDetailGoal(null)} style={{ padding: '0.5rem', borderRadius: '50%' }}>
-                            <X size={20} />
-                        </button>
-                    </div>
 
-                    {/* Progress details */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL TARGET</span>
-                            <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem' }}>${activeDetailGoal.target_amount.toLocaleString()}</h3>
+                        {/* Progress details */}
+                        <div className="grid-2-col">
+                            <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL TARGET</span>
+                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem' }}>${activeDetailGoal.target_amount.toLocaleString()}</h3>
+                            </div>
+                            <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL SAVED</span>
+                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>${activeDetailGoal.total_saved.toLocaleString()}</h3>
+                            </div>
                         </div>
-                        <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL SAVED</span>
-                            <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>${activeDetailGoal.total_saved.toLocaleString()}</h3>
-                        </div>
-                    </div>
 
                     {/* Potential Income Sources (pills) */}
                     {activeDetailGoal.income_sources && (
@@ -929,7 +926,7 @@ export function GoalsPage() {
                         )}
 
                         {/* Continuous contributions inputs */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div className="grid-2-col">
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                 <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Your Monthly Saving ($)</label>
                                 <input
@@ -997,7 +994,7 @@ export function GoalsPage() {
                             )}
 
                             {/* Add Windfall inline form */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 0.3fr', gap: '0.4rem', alignItems: 'end', background: 'rgba(255,255,255,0.01)', padding: '0.5rem', borderRadius: '8px', border: '1px dashed var(--glass-border)' }}>
+                            <div className="windfall-grid">
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
                                     <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Label</label>
                                     <input
@@ -1128,6 +1125,7 @@ export function GoalsPage() {
                         </div>
                     </div>
                 </div>
+                </>
             )}
 
             {/* ADD GOAL MODAL */}
