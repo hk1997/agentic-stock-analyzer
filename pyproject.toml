@@ -39,6 +39,7 @@ psycopg = {extras = ["binary"], version = "^3.3.3"}
 python-multipart = "^0.0.22"
 agentmail = "^0.4.5"
 apscheduler = "^3.11.2"
+mcp = "^1.27.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"

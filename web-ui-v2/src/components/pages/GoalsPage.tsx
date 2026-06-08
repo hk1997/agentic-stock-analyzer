@@ -69,6 +69,49 @@ interface ManualAssetItem {
 }
 
 export function GoalsPage() {
+    // Currency selection states
+    const [currency, setCurrency] = useState<string>(() => {
+        return localStorage.getItem('goals_currency') || 'USD'
+    })
+    const [exchangeRates, setExchangeRates] = useState<any>({
+        USD_TO_GBP: 1.0 / 1.27,
+        USD_TO_INR: 1.0 / 0.012,
+        USD_TO_EUR: 1.0 / 1.08
+    })
+
+    useEffect(() => {
+        localStorage.setItem('goals_currency', currency)
+    }, [currency])
+
+    const getCurrencySymbol = useCallback((curr: string) => {
+        switch (curr.toUpperCase()) {
+            case 'INR': return '₹'
+            case 'GBP': return '£'
+            case 'EUR': return '€'
+            default: return '$'
+        }
+    }, [])
+
+    const convertFromUSD = useCallback((amountUsd: number) => {
+        if (currency === 'USD') return amountUsd
+        const rateKey = `USD_TO_${currency}`
+        const rate = exchangeRates[rateKey] || 1.0
+        return amountUsd * rate
+    }, [currency, exchangeRates])
+
+    const convertToUSD = useCallback((amountForeign: number) => {
+        if (currency === 'USD') return amountForeign
+        const rateKey = `USD_TO_${currency}`
+        const rate = exchangeRates[rateKey] || 1.0
+        return rate > 0 ? amountForeign / rate : amountForeign
+    }, [currency, exchangeRates])
+
+    const formatValue = useCallback((amountUsd: number, options: Intl.NumberFormatOptions = { maximumFractionDigits: 0 }) => {
+        const converted = convertFromUSD(amountUsd)
+        const symbol = getCurrencySymbol(currency)
+        return `${symbol}${converted.toLocaleString(undefined, options)}`
+    }, [currency, convertFromUSD, getCurrencySymbol])
+
     // List states
     const [goals, setGoals] = useState<Goal[]>([])
     const [portfolios, setPortfolios] = useState<PortfolioItem[]>([])
@@ -119,16 +162,20 @@ export function GoalsPage() {
         setLoading(true)
         setError(null)
         try {
-            const [goalsData, portfoliosData, assetsData, accountsData] = await Promise.all([
+            const [goalsData, portfoliosData, assetsData, accountsData, ratesData] = await Promise.all([
                 apiFetch('/api/finance/goals'),
                 apiFetch('/api/portfolio').catch(() => []),
                 apiFetch('/api/finance/manual-assets').catch(() => []),
-                apiFetch('/api/finance/accounts').catch(() => [])
+                apiFetch('/api/finance/accounts').catch(() => []),
+                apiFetch('/api/finance/exchange-rates').catch(() => null)
             ])
             setGoals(goalsData)
             setPortfolios(portfoliosData)
             setManualAssets(assetsData)
             setAccounts(accountsData)
+            if (ratesData) {
+                setExchangeRates(ratesData)
+            }
         } catch (err: any) {
             setError(err.message || 'Failed to load goals data')
         } finally {
@@ -153,11 +200,14 @@ export function GoalsPage() {
                 const partnerName = Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner'
                 const partnerCont = parsed.find((c: any) => c.owner === partnerName && c.type === 'continuous')?.amount || 0
                 
-                setContinuousYou(youCont)
-                setContinuousPartner(partnerCont)
+                setContinuousYou(Math.round(convertFromUSD(youCont)))
+                setContinuousPartner(Math.round(convertFromUSD(partnerCont)))
                 
                 // Filter non-continuous cash flows
-                const nonCont = parsed.filter((c: any) => c.type === 'non_continuous')
+                const nonCont = parsed.filter((c: any) => c.type === 'non_continuous').map((c: any) => ({
+                    ...c,
+                    amount: convertFromUSD(c.amount)
+                }))
                 setNonContinuousList(nonCont)
             } catch (e) {
                 console.error("Failed to parse cash flows", e)
@@ -166,7 +216,7 @@ export function GoalsPage() {
                 setNonContinuousList([])
             }
         }
-    }, [activeDetailGoal])
+    }, [activeDetailGoal, currency, convertFromUSD])
 
     // KPI Metrics calculation
     const metrics = useMemo(() => {
@@ -206,7 +256,7 @@ export function GoalsPage() {
                 body: JSON.stringify({
                     title: goalTitle,
                     category: goalCategory,
-                    target_amount: parseFloat(goalTargetAmount),
+                    target_amount: convertToUSD(parseFloat(goalTargetAmount)),
                     target_date: new Date(goalTargetDate).toISOString(),
                     linked_asset_type: goalLinkedAssetType === 'none' ? null : goalLinkedAssetType,
                     linked_asset_id: goalLinkedAssetId ? parseInt(goalLinkedAssetId) : null,
@@ -237,7 +287,7 @@ export function GoalsPage() {
             await apiFetch(`/api/finance/goals/${selectedGoal.id}/contributions`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    amount: parseFloat(contribAmount),
+                    amount: convertToUSD(parseFloat(contribAmount)),
                     date: contribDate ? new Date(contribDate).toISOString() : null,
                     description: contribDescription || null
                 })
@@ -295,7 +345,7 @@ export function GoalsPage() {
         setEditingGoal(goal)
         setGoalTitle(goal.title)
         setGoalCategory(goal.category)
-        setGoalTargetAmount(String(goal.target_amount))
+        setGoalTargetAmount(String(Math.round(convertFromUSD(goal.target_amount))))
         const formattedDate = goal.target_date ? goal.target_date.split('T')[0] : ''
         setGoalTargetDate(formattedDate)
         setGoalLinkedAssetType(goal.linked_asset_type || 'none')
@@ -315,7 +365,7 @@ export function GoalsPage() {
                 body: JSON.stringify({
                     title: goalTitle,
                     category: goalCategory,
-                    target_amount: parseFloat(goalTargetAmount),
+                    target_amount: convertToUSD(parseFloat(goalTargetAmount)),
                     target_date: new Date(goalTargetDate).toISOString(),
                     linked_asset_type: goalLinkedAssetType === 'none' ? null : goalLinkedAssetType,
                     linked_asset_id: goalLinkedAssetId ? parseInt(goalLinkedAssetId) : null,
@@ -361,25 +411,25 @@ export function GoalsPage() {
         // Initial point: creation date of the goal
         points.push({
             date: new Date(activeDetailGoal.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            amount: cumulative
+            amount: convertFromUSD(cumulative)
         })
 
         for (const c of sortedContribs) {
             cumulative += c.amount
             points.push({
                 date: new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-                amount: cumulative
+                amount: convertFromUSD(cumulative)
             })
         }
         
         // Add final point representing today
         points.push({
             date: 'Today',
-            amount: cumulative
+            amount: convertFromUSD(cumulative)
         })
         
         return points
-    }, [activeDetailGoal])
+    }, [activeDetailGoal, convertFromUSD])
 
     // Forecast calculation inside slider drawer
     const projectionDate = useMemo(() => {
@@ -401,8 +451,8 @@ export function GoalsPage() {
         const partnerName = Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner'
         const points = []
         
-        let cumulative = activeDetailGoal.total_saved
-        const target = activeDetailGoal.target_amount
+        let cumulative = convertFromUSD(activeDetailGoal.total_saved)
+        const target = convertFromUSD(activeDetailGoal.target_amount)
         const targetDate = new Date(activeDetailGoal.target_date)
         const today = new Date()
         
@@ -477,7 +527,7 @@ export function GoalsPage() {
             shortAmount,
             monthsToTarget
         }
-    }, [activeDetailGoal, continuousYou, continuousPartner, nonContinuousList])
+    }, [activeDetailGoal, continuousYou, continuousPartner, nonContinuousList, convertFromUSD])
 
     const handleAddOneOff = (e: React.FormEvent) => {
         e.preventDefault()
@@ -514,17 +564,20 @@ export function GoalsPage() {
                 id: 'cont-you',
                 owner: 'You',
                 type: 'continuous',
-                amount: Number(continuousYou || 0),
+                amount: convertToUSD(Number(continuousYou || 0)),
                 label: 'Continuous savings'
             },
             {
                 id: 'cont-partner',
                 owner: partnerName,
                 type: 'continuous',
-                amount: Number(continuousPartner || 0),
+                amount: convertToUSD(Number(continuousPartner || 0)),
                 label: 'Continuous savings'
             },
-            ...nonContinuousList
+            ...nonContinuousList.map(c => ({
+                ...c,
+                amount: convertToUSD(c.amount)
+            }))
         ]
         
         try {
@@ -582,7 +635,27 @@ export function GoalsPage() {
                             <p className="portfolio-header__subtitle">Cooperative wealth tracking for you and your partner</p>
                         </div>
                     </div>
-                    <div className="portfolio-header__actions">
+                    <div className="portfolio-header__actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <select
+                            value={currency}
+                            onChange={(e) => setCurrency(e.target.value)}
+                            className="chat-input__field"
+                            style={{
+                                width: '100px',
+                                padding: '0.45rem 0.75rem',
+                                fontSize: '0.85rem',
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                border: '1px solid var(--glass-border)',
+                                borderRadius: '10px',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <option value="USD" style={{ background: 'var(--bg-surface)' }}>USD ($)</option>
+                            <option value="GBP" style={{ background: 'var(--bg-surface)' }}>GBP (£)</option>
+                            <option value="INR" style={{ background: 'var(--bg-surface)' }}>INR (₹)</option>
+                            <option value="EUR" style={{ background: 'var(--bg-surface)' }}>EUR (€)</option>
+                        </select>
                         <button className="btn btn--primary" onClick={() => setShowAddGoalModal(true)}>
                             <Plus size={16} /> Add New Goal
                         </button>
@@ -597,21 +670,21 @@ export function GoalsPage() {
                         <div className="summary-card__icon"><Target size={20} /></div>
                         <div className="summary-card__content">
                             <span className="summary-card__label">Total Milestones Target</span>
-                            <span className="summary-card__value">${metrics.totalTargets.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span className="summary-card__value">{formatValue(metrics.totalTargets)}</span>
                         </div>
                     </div>
                     <div className="summary-card">
                         <div className="summary-card__icon positive"><DollarSign size={20} /></div>
                         <div className="summary-card__content">
                             <span className="summary-card__label">Total Jointly Saved</span>
-                            <span className="summary-card__value">${metrics.totalSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span className="summary-card__value">{formatValue(metrics.totalSaved)}</span>
                         </div>
                     </div>
                     <div className="summary-card">
                         <div className="summary-card__icon"><TrendingUp size={20} /></div>
                         <div className="summary-card__content">
                             <span className="summary-card__label">Joint Monthly Velocity</span>
-                            <span className="summary-card__value">${metrics.velocity.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</span>
+                            <span className="summary-card__value">{formatValue(metrics.velocity)}/mo</span>
                         </div>
                     </div>
                     <div className="summary-card">
@@ -688,8 +761,8 @@ export function GoalsPage() {
                                     {/* Main Progress Bar */}
                                     <div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>Saved: <strong>${goal.total_saved.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></span>
-                                            <span style={{ color: 'var(--text-muted)' }}>Target: ${goal.target_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>Saved: <strong>{formatValue(goal.total_saved)}</strong></span>
+                                            <span style={{ color: 'var(--text-muted)' }}>Target: {formatValue(goal.target_amount)}</span>
                                         </div>
                                         <div style={{ height: '8px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px', overflow: 'hidden' }}>
                                             <div style={{
@@ -704,7 +777,7 @@ export function GoalsPage() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                                             <span>{goal.progress_percent.toFixed(0)}% Completed</span>
                                             {remaining > 0 ? (
-                                                <span>${remaining.toLocaleString(undefined, { maximumFractionDigits: 0 })} left</span>
+                                                <span>{formatValue(remaining)} left</span>
                                             ) : (
                                                 <span style={{ color: 'var(--bullish)', fontWeight: 600 }}>Goal Reached! 🎉</span>
                                             )}
@@ -725,7 +798,7 @@ export function GoalsPage() {
                                                     // Assign different colors to split sides
                                                     const color = index === 0 ? 'var(--accent)' : 'var(--accent-purple)'
                                                     return (
-                                                        <div key={name} style={{ width: `${pct}%`, background: color, height: '100%' }} title={`${name}: $${amount}`} />
+                                                        <div key={name} style={{ width: `${pct}%`, background: color, height: '100%' }} title={`${name}: ${formatValue(amount)}`} />
                                                     )
                                                 })}
                                             </div>
@@ -749,7 +822,7 @@ export function GoalsPage() {
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.75rem' }}>
                                             <Clock size={14} style={{ color: 'var(--text-muted)' }} />
                                             <span>
-                                                Pace: <strong>${Math.round(goal.savings_velocity)}/mo</strong>.
+                                                Pace: <strong>{formatValue(goal.savings_velocity)}/mo</strong>.
                                                 {goal.run_rate_months !== null ? (
                                                     <span> Estimated completion in <strong>{goal.run_rate_months.toFixed(1)} months</strong> ({monthsToTarget} months target).</span>
                                                 ) : (
@@ -804,11 +877,11 @@ export function GoalsPage() {
                         <div className="grid-2-col">
                             <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL TARGET</span>
-                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem' }}>${activeDetailGoal.target_amount.toLocaleString()}</h3>
+                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem' }}>{formatValue(activeDetailGoal.target_amount)}</h3>
                             </div>
                             <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL SAVED</span>
-                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>${activeDetailGoal.total_saved.toLocaleString()}</h3>
+                                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>{formatValue(activeDetailGoal.total_saved)}</h3>
                             </div>
                         </div>
 
@@ -838,8 +911,8 @@ export function GoalsPage() {
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                         <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={10} tickLine={false} />
-                                        <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} tickFormatter={(val) => `$${val}`} />
-                                        <RechartsTooltip formatter={(value: number) => `$${value.toLocaleString()}`} contentStyle={{ background: '#10101c', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 8 }} />
+                                        <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} tickFormatter={(val) => `${getCurrencySymbol(currency)}${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+                                        <RechartsTooltip formatter={(value: number) => `${getCurrencySymbol(currency)}${value.toLocaleString()}`} contentStyle={{ background: '#10101c', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 8 }} />
                                         <Area type="monotone" dataKey="amount" stroke="var(--accent)" fill="rgba(0, 242, 254, 0.08)" strokeWidth={2} />
                                     </AreaChart>
                                 </ResponsiveContainer>
@@ -876,7 +949,7 @@ export function GoalsPage() {
                                 background: 'rgba(0, 242, 254, 0.04)', border: '1px solid rgba(0, 242, 254, 0.15)',
                                 color: 'var(--accent)'
                             }}>
-                                🎉 <strong>On Track!</strong> Projected to reach target of <strong>${activeDetailGoal.target_amount.toLocaleString()}</strong> in <strong>{projectionChartData.reachedDateStr}</strong>.
+                                🎉 <strong>On Track!</strong> Projected to reach target of <strong>{formatValue(activeDetailGoal.target_amount)}</strong> in <strong>{projectionChartData.reachedDateStr}</strong>.
                             </div>
                         ) : (
                             <div style={{
@@ -884,7 +957,7 @@ export function GoalsPage() {
                                 background: 'rgba(255, 71, 87, 0.05)', border: '1px solid rgba(255, 71, 87, 0.15)',
                                 color: '#ff4757'
                             }}>
-                                ⚠️ <strong>Behind Target:</strong> Short by <strong>${projectionChartData.shortAmount.toLocaleString()}</strong> at target date. Increase monthly savings or add one-off inflows.
+                                ⚠️ <strong>Behind Target:</strong> Short by <strong>{getCurrencySymbol(currency)}{Math.round(projectionChartData.shortAmount).toLocaleString()}</strong> at target date. Increase monthly savings or add one-off inflows.
                             </div>
                         )}
 
@@ -894,22 +967,23 @@ export function GoalsPage() {
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={projectionChartData.points} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                                         <XAxis dataKey="dateStr" stroke="var(--text-muted)" fontSize={9} tickLine={false} />
-                                        <YAxis stroke="var(--text-muted)" fontSize={9} tickLine={false} tickFormatter={(val) => `$${val}`} />
+                                        <YAxis stroke="var(--text-muted)" fontSize={9} tickLine={false} tickFormatter={(val) => `${getCurrencySymbol(currency)}${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
                                         <RechartsTooltip
                                             content={({ active, payload }) => {
                                                 if (active && payload && payload.length) {
                                                     const data = payload[0].payload
+                                                    const symbol = getCurrencySymbol(currency)
                                                     return (
                                                         <div style={{ background: '#10101c', border: '1px solid var(--glass-border)', padding: '0.5rem', borderRadius: 8, fontSize: '0.75rem', color: '#fff' }}>
                                                             <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{data.dateStr}</p>
-                                                            <p style={{ color: 'var(--accent)' }}>Projected: ${data.amount.toLocaleString()}</p>
-                                                            <p style={{ color: 'rgba(255,255,255,0.4)' }}>Target: ${data.target.toLocaleString()}</p>
+                                                            <p style={{ color: 'var(--accent)' }}>Projected: {symbol}{data.amount.toLocaleString()}</p>
+                                                            <p style={{ color: 'rgba(255,255,255,0.4)' }}>Target: {symbol}{data.target.toLocaleString()}</p>
                                                             {data.monthIndex > 0 && (
                                                                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: '0.25rem', paddingTop: '0.25rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                                                                     <p>This month's flow:</p>
-                                                                    <p>• You: +${data.continuousYou}</p>
-                                                                    <p style={{ textTransform: 'capitalize' }}>• {Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner'}: +${data.continuousPartner}</p>
-                                                                    {data.oneOffSum > 0 && <p style={{ color: 'var(--accent)' }}>• One-off: +${data.oneOffSum}</p>}
+                                                                    <p>• You: +{symbol}{data.continuousYou}</p>
+                                                                    <p style={{ textTransform: 'capitalize' }}>• {Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner'}: +{symbol}{data.continuousPartner}</p>
+                                                                    {data.oneOffSum > 0 && <p style={{ color: 'var(--accent)' }}>• One-off: +{symbol}{data.oneOffSum}</p>}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -928,7 +1002,7 @@ export function GoalsPage() {
                         {/* Continuous contributions inputs */}
                         <div className="grid-2-col">
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Your Monthly Saving ($)</label>
+                                <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Your Monthly Saving ({getCurrencySymbol(currency)})</label>
                                 <input
                                     type="number"
                                     className="chat-input__field"
@@ -940,7 +1014,7 @@ export function GoalsPage() {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                 <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                    {(Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner')}'s Monthly Saving ($)
+                                    {(Object.keys(activeDetailGoal.partner_breakdown).find(k => k !== 'You') || 'Partner')}'s Monthly Saving ({getCurrencySymbol(currency)})
                                 </label>
                                 <input
                                     type="number"
@@ -975,7 +1049,7 @@ export function GoalsPage() {
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                                <span style={{ fontWeight: 600, color: 'var(--accent)' }}>+${c.amount.toLocaleString()}</span>
+                                                <span style={{ fontWeight: 600, color: 'var(--accent)' }}>+{getCurrencySymbol(currency)}{c.amount.toLocaleString()}</span>
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveOneOff(c.id)}
@@ -1007,7 +1081,7 @@ export function GoalsPage() {
                                     />
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                                    <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Amount</label>
+                                    <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Amount ({getCurrencySymbol(currency)})</label>
                                     <input
                                         type="number"
                                         placeholder="e.g. 5000"
@@ -1092,10 +1166,9 @@ export function GoalsPage() {
                                         <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Dynamically synced asset value</p>
                                     </div>
                                 </div>
-                                <span style={{ fontWeight: 600, color: 'var(--accent)' }}>+${activeDetailGoal.linked_asset_value.toLocaleString()}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--accent)' }}>+{formatValue(activeDetailGoal.linked_asset_value)}</span>
                             </div>
                         )}
-
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', overflowY: 'auto', flex: 1, maxHeight: '200px' }}>
                             {!activeDetailGoal.contributions.length ? (
                                 <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '2rem' }}>No manual contributions logged.</p>
@@ -1114,7 +1187,7 @@ export function GoalsPage() {
                                             <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>{contrib.description || 'Manual saving contribution'}</p>
                                         </div>
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                            <span style={{ fontWeight: 600, color: 'var(--bullish)' }}>+${contrib.amount.toLocaleString()}</span>
+                                            <span style={{ fontWeight: 600, color: 'var(--bullish)' }}>+{formatValue(contrib.amount)}</span>
                                             <button className="icon-btn icon-btn--danger" style={{ padding: '0.25rem' }} onClick={() => handleDeleteContribution(activeDetailGoal.id, contrib.id)} title="Delete transaction">
                                                 <Trash2 size={12} />
                                             </button>
@@ -1178,7 +1251,7 @@ export function GoalsPage() {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Target Amount ($)</label>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Target Amount ({getCurrencySymbol(currency)})</label>
                                 <input
                                     type="number"
                                     className="chat-input__field"
@@ -1264,7 +1337,7 @@ export function GoalsPage() {
                                 >
                                     <option value="">-- Choose Asset --</option>
                                     {manualAssets.map(a => (
-                                        <option key={a.id} value={a.id}>{a.asset_type} ({a.description || 'No desc'}) - ${a.value}</option>
+                                        <option key={a.id} value={a.id}>{a.asset_type} ({a.description || 'No desc'}) - {formatValue(a.value)}</option>
                                     ))}
                                 </select>
                             </div>
@@ -1348,7 +1421,7 @@ export function GoalsPage() {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Target Amount ($)</label>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Target Amount ({getCurrencySymbol(currency)})</label>
                                 <input
                                     type="number"
                                     className="chat-input__field"
@@ -1434,7 +1507,7 @@ export function GoalsPage() {
                                 >
                                     <option value="">-- Choose Asset --</option>
                                     {manualAssets.map(a => (
-                                        <option key={a.id} value={a.id}>{a.asset_type} ({a.description || 'No desc'}) - ${a.value}</option>
+                                        <option key={a.id} value={a.id}>{a.asset_type} ({a.description || 'No desc'}) - {formatValue(a.value)}</option>
                                     ))}
                                 </select>
                             </div>
@@ -1491,7 +1564,7 @@ export function GoalsPage() {
 
                         {/* Amount */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Contribution Amount ($)</label>
+                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Contribution Amount ({getCurrencySymbol(currency)})</label>
                             <input
                                 type="number"
                                 className="chat-input__field"

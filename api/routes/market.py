@@ -443,3 +443,53 @@ async def get_filings_risks(ticker: str):
         return {"ticker": ticker.upper(), "markdown": risk_summary}
     except Exception as exc:
         return {"error": str(exc)}
+
+@router.get("/valuation/dcf/{ticker}")
+@cached_async(ttl_seconds=86400)
+async def get_dcf_valuation(ticker: str):
+    """Calculates the DCF fair value of a ticker."""
+    try:
+        from app.tools import calculate_intrinsic_value
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            dcf_result = await loop.run_in_executor(executor, calculate_intrinsic_value.invoke, {"ticker": ticker})
+            
+        return {"ticker": ticker.upper(), "valuation": dcf_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@router.get("/valuation/ddm/{ticker}")
+@cached_async(ttl_seconds=86400)
+async def get_ddm_valuation(ticker: str):
+    """Calculates the DDM fair value of a ticker."""
+    try:
+        from app.tools import calculate_ddm
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            ddm_result = await loop.run_in_executor(executor, calculate_ddm.invoke, {"ticker": ticker})
+            
+        return {"ticker": ticker.upper(), "valuation": ddm_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+@router.get("/stock/{ticker}/risk")
+@cached_async(ttl_seconds=86400)
+async def get_stock_risk(ticker: str):
+    """Calculates risk metrics (volatility, Sharpe, max drawdown) for a stock."""
+    try:
+        from app.tools import get_risk_metrics
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            loop = asyncio.get_running_loop()
+            risk_result = await loop.run_in_executor(executor, get_risk_metrics.invoke, {"ticker": ticker})
+            
+        return {"ticker": ticker.upper(), "risk": risk_result}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
