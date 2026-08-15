@@ -337,6 +337,33 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     if isinstance(close_df.columns, pd.MultiIndex):
         close_df.columns = close_df.columns.get_level_values(-1)
 
+    # Fallback for UK stocks that need .L suffix on Yahoo Finance
+    missing_tickers = [t for t in all_tickers if t not in close_df.columns or close_df[t].isna().all()]
+    if missing_tickers:
+        def _download_l():
+            l_tickers = [f"{t}.L" for t in missing_tickers]
+            data = yf.download(
+                l_tickers,
+                start=inception_str,
+                end=(today + timedelta(days=1)).strftime("%Y-%m-%d"),
+                auto_adjust=False,
+                progress=False,
+            )
+            if data.empty:
+                return pd.DataFrame()
+            return data["Close"] if "Close" in data.columns.get_level_values(0) else data
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="yf_bench_l") as pool_l:
+            close_l = await loop.run_in_executor(pool_l, _download_l)
+            
+        if not close_l.empty:
+            if isinstance(close_l.columns, pd.MultiIndex):
+                close_l.columns = close_l.columns.get_level_values(-1)
+            close_l = close_l.rename(columns={f"{t}.L": t for t in missing_tickers})
+            for t in missing_tickers:
+                if t in close_l.columns and not close_l[t].isna().all():
+                    close_df[t] = close_l[t]
+
     # Convert prices to target currency
     for ticker in all_tickers:
         if ticker in close_df.columns:
