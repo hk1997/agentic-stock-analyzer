@@ -3,6 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 import io
+from dateutil import parser
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_
@@ -279,31 +280,12 @@ def parse_date(date_str: str) -> datetime:
     if not date_str:
         raise ValueError("Empty date string")
     
-    # Try ISO format (handles T and timezones)
+    # Use python-dateutil parser to handle diverse date formats, prioritizing day-first
+    # as expected for UK/European bank statements and CSV exports.
     try:
-        if date_str.endswith('Z'):
-            date_str = date_str[:-1] + '+00:00'
-        return datetime.fromisoformat(date_str)
-    except ValueError:
-        pass
-
-    # Try common formats
-    formats = [
-        "%Y-%m-%d",
-        "%Y-%m-%d %H:%M:%S",
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%Y/%m/%d",
-        "%b %d, %Y",
-    ]
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Could not parse date: {date_str}")
+        return parser.parse(date_str, dayfirst=True)
+    except Exception as e:
+        raise ValueError(f"Could not parse date: {date_str}") from e
 
 def parse_amount(amount_str: str) -> float:
     if not amount_str:

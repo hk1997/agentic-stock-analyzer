@@ -49,7 +49,7 @@ def _get_field_map(fieldnames: list[str]) -> dict[str, str]:
                 'Exchange rate', 'Total', 'Currency (Total)', 'Result', 'Currency (Result)'}
     for f in fieldnames:
         for opt in optional:
-            if f.strip().lower() == opt.lower():
+            if f.strip().lower() == opt.lower() or (opt == 'Time' and f.strip().lower() == 'time (utc)'):
                 field_map[opt] = f.strip()
 
     return field_map
@@ -149,12 +149,15 @@ def parse_t212_transactions(file_content: str) -> list[dict]:
         executed_at = None
         if time_str:
             try:
-                executed_at = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+                executed_at = datetime.fromisoformat(time_str)
             except ValueError:
                 try:
-                    executed_at = datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%S')
+                    executed_at = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    pass
+                    try:
+                        executed_at = datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%S')
+                    except ValueError:
+                        pass
 
         transactions.append({
             "external_id": external_id or None,
