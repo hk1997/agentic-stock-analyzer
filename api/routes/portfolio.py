@@ -356,7 +356,7 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     
     # Filter transactions to only include tickers we have price data for, 
     # to avoid cash flows throwing off the return for missing assets.
-    valid_tickers = [t for t in all_tickers if t in close_df.columns]
+    valid_tickers = [t for t in all_tickers if t in close_df.columns and not close_df[t].isna().all()]
     df_txns = df_txns[df_txns["ticker"].isin(valid_tickers)]
     
     def get_cf(row):
