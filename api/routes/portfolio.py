@@ -369,8 +369,14 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         if ticker in close_df.columns:
             currency = await get_cache(f"currency:{ticker}")
             if not currency:
-                await get_live_price(ticker, fallback=0.0)
-                currency = await get_cache(f"currency:{ticker}") or "USD"
+                if ticker in missing_tickers:
+                    await get_live_price(f"{ticker}.L", fallback=0.0)
+                    currency = await get_cache(f"currency:{ticker}.L")
+                
+                if not currency:
+                    await get_live_price(ticker, fallback=0.0)
+                    currency = await get_cache(f"currency:{ticker}") or "USD"
+                    
             if currency == "GBP":
                 close_df[ticker] = close_df[ticker] / 100.0
             
@@ -397,8 +403,17 @@ async def get_portfolio_benchmarks(portfolio_id: int):
             return -val
         return 0.0
 
-    df_txns["cf"] = df_txns.apply(get_cf, axis=1)
-    daily_cf = df_txns.groupby("executed_at")["cf"].sum()
+    if not df_txns.empty:
+        df_txns["cf_raw"] = df_txns.apply(get_cf, axis=1)
+        df_txns["cf_in"] = df_txns["cf_raw"].apply(lambda x: x if x > 0 else 0.0)
+        df_txns["cf_out"] = df_txns["cf_raw"].apply(lambda x: x if x < 0 else 0.0)
+        daily_cf_in = df_txns.groupby("executed_at")["cf_in"].sum()
+        daily_cf_out = df_txns.groupby("executed_at")["cf_out"].sum()
+        daily_cf = df_txns.groupby("executed_at")["cf_raw"].sum()
+    else:
+        daily_cf_in = pd.Series(dtype=float)
+        daily_cf_out = pd.Series(dtype=float)
+        daily_cf = pd.Series(dtype=float)
 
     def get_share_change(row):
         action = row["action"]
@@ -415,27 +430,43 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         daily_shares = pd.DataFrame()
 
     all_days = pd.date_range(inception_str, today.strftime("%Y-%m-%d"))
+    
+    # Ensure close_df index is tz-naive for trading days
+    close_df.index = pd.to_datetime(close_df.index).tz_localize(None).floor("D")
+    trading_days = close_df.index
+    
     if not daily_shares.empty:
-        daily_shares = daily_shares.reindex(all_days).fillna(0).cumsum()
+        cum_shares = daily_shares.reindex(all_days).fillna(0).cumsum()
+        cum_shares_trading = cum_shares.reindex(trading_days, method="ffill").fillna(0)
     else:
-        daily_shares = pd.DataFrame(index=all_days)
+        cum_shares_trading = pd.DataFrame(index=trading_days)
         
+    cum_cf_in = daily_cf_in.reindex(all_days).fillna(0).cumsum()
+    cum_cf_in_trading = cum_cf_in.reindex(trading_days, method="ffill").fillna(0)
+    cf_in_t = cum_cf_in_trading.diff().fillna(cum_cf_in_trading.iloc[0] if not cum_cf_in_trading.empty else 0)
+    
+    cum_cf_out = daily_cf_out.reindex(all_days).fillna(0).cumsum()
+    cum_cf_out_trading = cum_cf_out.reindex(trading_days, method="ffill").fillna(0)
+    cf_out_t = cum_cf_out_trading.diff().fillna(cum_cf_out_trading.iloc[0] if not cum_cf_out_trading.empty else 0)
+    
     daily_cf = daily_cf.reindex(all_days).fillna(0)
 
-    tickers_to_use = [t for t in daily_shares.columns if t in close_df.columns]
+    tickers_to_use = [t for t in cum_shares_trading.columns if t in close_df.columns]
     
     if tickers_to_use:
-        filled_prices = close_df[tickers_to_use].reindex(all_days).ffill().bfill()
-        daily_value = (daily_shares[tickers_to_use] * filled_prices).sum(axis=1)
+        filled_prices = close_df[tickers_to_use].ffill().bfill()
+        daily_value = (cum_shares_trading[tickers_to_use] * filled_prices).sum(axis=1)
     else:
-        daily_value = pd.Series(0.0, index=all_days)
+        daily_value = pd.Series(0.0, index=trading_days)
 
     v_prev = daily_value.shift(1).fillna(0)
     with np.errstate(divide='ignore', invalid='ignore'):
-        r_t = (daily_value - daily_cf) / v_prev - 1
+        # BOD definition for inflows, EOD definition for outflows to perfectly track intraday trade execution 
+        r_t = (daily_value - cf_out_t) / (v_prev + cf_in_t) - 1
     
     r_t = r_t.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    r_t.iloc[0] = 0.0
+    if not r_t.empty:
+        r_t.iloc[0] = 0.0
     portfolio_daily = r_t
 
     current_value = daily_value.iloc[-1] if not daily_value.empty else 0.0
