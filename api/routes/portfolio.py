@@ -318,7 +318,7 @@ async def get_portfolio_benchmarks(portfolio_id: int):
             download_tickers,
             start=inception_str,
             end=(today + timedelta(days=1)).strftime("%Y-%m-%d"),
-            auto_adjust=True,
+            auto_adjust=False,
             progress=False,
         )
         if data.empty:
@@ -354,6 +354,11 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     # Time-Weighted Return (TWR)
     rate_gbp = await convert_currency(1.0, "GBP", target_currency)
     
+    # Filter transactions to only include tickers we have price data for, 
+    # to avoid cash flows throwing off the return for missing assets.
+    valid_tickers = [t for t in all_tickers if t in close_df.columns]
+    df_txns = df_txns[df_txns["ticker"].isin(valid_tickers)]
+    
     def get_cf(row):
         action = row["action"]
         val = row["total_in_local"] * rate_gbp
@@ -370,9 +375,9 @@ async def get_portfolio_benchmarks(portfolio_id: int):
 
     def get_share_change(row):
         action = row["action"]
-        if "buy" in action:
+        if "buy" in action or action == "stock split open":
             return row["shares"]
-        elif "sell" in action and "split" not in action:
+        elif ("sell" in action and "split" not in action) or action == "stock split close":
             return -row["shares"]
         return 0.0
 
@@ -416,9 +421,10 @@ async def get_portfolio_benchmarks(portfolio_id: int):
             ((unrealized_pnl + total_realized_pnl + total_dividends) / total_invested) * 100, 2
         )
 
-    returns_df = close_df.pct_change().dropna()
+    returns_df = close_df.pct_change()
 
     def cum_return(series, start_date=None):
+        series = series.dropna()
         if start_date:
             series = series[series.index >= pd.Timestamp(start_date)]
         if series.empty:
