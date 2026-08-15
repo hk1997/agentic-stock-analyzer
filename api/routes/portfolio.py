@@ -225,7 +225,7 @@ async def get_portfolio(portfolio_id: int):
 @router.get("/portfolio/{portfolio_id}/benchmarks")
 async def get_portfolio_benchmarks(portfolio_id: int):
     """Compute portfolio % returns vs S&P 500 / NASDAQ, plus beta, alpha, Sharpe.
-    Includes realized P&L and dividends in the total return calculation."""
+    Uses Time-Weighted Return (TWR) for daily performance, accounting for cash flows."""
     async with async_session() as session:
         port = await session.get(Portfolio, portfolio_id)
         if not port:
@@ -263,31 +263,59 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         total_realized_pnl = 0.0
         total_dividends = 0.0
 
-        for t in all_txns:
-            action = (t.action or "").lower()
-            fx = t.exchange_rate or 1.0
-            
-            if "sell" in action and "split" not in action:
-                total_realized_pnl += (t.result_in_local or 0) * fx
-            elif "dividend" in action:
-                total_dividends += (abs(t.total_in_local or 0) / fx) if fx > 0 else 0
+        records = []
+        if all_txns:
+            for t in all_txns:
+                action = (t.action or "").lower()
+                fx = t.exchange_rate or 1.0
+                
+                if "sell" in action and "split" not in action:
+                    total_realized_pnl += (t.result_in_local or 0) * fx
+                elif "dividend" in action:
+                    total_dividends += (abs(t.total_in_local or 0) / fx) if fx > 0 else 0
+
+                records.append({
+                    "executed_at": t.executed_at,
+                    "ticker": t.ticker,
+                    "action": action,
+                    "shares": t.shares,
+                    "total_in_local": t.total_in_local or 0,
+                    "price_per_share": t.price_per_share,
+                })
+        else:
+            # Fallback for manual portfolios
+            inception_date = min([h.added_at for h in holdings]) if holdings else datetime.now()
+            for h in holdings:
+                records.append({
+                    "executed_at": h.added_at,
+                    "ticker": h.ticker,
+                    "action": "market buy",
+                    "shares": h.shares,
+                    "price_per_share": h.avg_cost_basis,
+                    "total_in_local": h.shares * h.avg_cost_basis, # simplistic
+                })
 
         total_realized_pnl = await convert_currency(total_realized_pnl, "USD", target_currency)
         total_dividends = await convert_currency(total_dividends, "USD", target_currency)
 
-    inception_str = inception_date.strftime("%Y-%m-%d")
+    df_txns = pd.DataFrame(records)
+    if df_txns.empty:
+        return {"error": "No transactions or holdings"}
+
+    df_txns["executed_at"] = pd.to_datetime(df_txns["executed_at"]).dt.tz_localize(None).dt.normalize()
+    inception_str = df_txns["executed_at"].min().strftime("%Y-%m-%d")
     today = datetime.now()
 
-    tickers = [h.ticker for h in holdings if h.shares > 0]
-    if not tickers:
+    all_tickers = df_txns["ticker"].unique().tolist()
+    if not all_tickers:
         return {"error": "No active holdings"}
 
     benchmark_tickers = ["^GSPC", "^IXIC"]
-    all_tickers = tickers + benchmark_tickers
+    download_tickers = list(set(all_tickers + benchmark_tickers))
 
     def _download():
         data = yf.download(
-            all_tickers,
+            download_tickers,
             start=inception_str,
             end=(today + timedelta(days=1)).strftime("%Y-%m-%d"),
             auto_adjust=True,
@@ -295,7 +323,7 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         )
         if data.empty:
             return pd.DataFrame()
-        if len(all_tickers) == 1:
+        if len(download_tickers) == 1:
             return data
         return data["Close"] if "Close" in data.columns.get_level_values(0) else data
 
@@ -309,7 +337,8 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     if isinstance(close_df.columns, pd.MultiIndex):
         close_df.columns = close_df.columns.get_level_values(-1)
 
-    for ticker in tickers:
+    # Convert prices to target currency
+    for ticker in all_tickers:
         if ticker in close_df.columns:
             currency = await get_cache(f"currency:{ticker}")
             if not currency:
@@ -317,43 +346,77 @@ async def get_portfolio_benchmarks(portfolio_id: int):
                 currency = await get_cache(f"currency:{ticker}") or "USD"
             if currency == "GBP":
                 close_df[ticker] = close_df[ticker] / 100.0
+            
+            if currency != target_currency:
+                rate = await convert_currency(1.0, currency, target_currency)
+                close_df[ticker] = close_df[ticker] * rate
 
-    returns_df = close_df.pct_change().dropna()
-    if returns_df.empty:
-        return {"error": "Insufficient data for returns"}
+    # Time-Weighted Return (TWR)
+    rate_gbp = await convert_currency(1.0, "GBP", target_currency)
+    
+    def get_cf(row):
+        action = row["action"]
+        val = row["total_in_local"] * rate_gbp
+        if "buy" in action:
+            return val
+        elif "sell" in action:
+            return -val
+        elif "dividend" in action:
+            return -val
+        return 0.0
 
-    current_value = 0.0
-    total_invested = 0.0
-    weights = {}
-    for h in holdings:
-        if h.shares > 0 and h.ticker in close_df.columns:
-            price = close_df[h.ticker].iloc[-1]
-            if not pd.isna(price):
-                ticker_currency = (await get_cache(f"currency:{h.ticker}")) or "USD"
-                converted_price = await convert_currency(price, ticker_currency, target_currency)
-                converted_cost_basis = await convert_currency(h.avg_cost_basis, ticker_currency, target_currency)
-                
-                val = h.shares * converted_price
-                cost = h.shares * converted_cost_basis
-                
-                current_value += val
-                total_invested += cost
-                weights[h.ticker] = val
+    df_txns["cf"] = df_txns.apply(get_cf, axis=1)
+    daily_cf = df_txns.groupby("executed_at")["cf"].sum()
 
-    if current_value > 0:
-        weights = {k: v / current_value for k, v in weights.items()}
+    def get_share_change(row):
+        action = row["action"]
+        if "buy" in action:
+            return row["shares"]
+        elif "sell" in action and "split" not in action:
+            return -row["shares"]
+        return 0.0
 
+    df_txns["share_change"] = df_txns.apply(get_share_change, axis=1)
+    if "ticker" in df_txns.columns and not df_txns.empty:
+        daily_shares = df_txns.groupby(["executed_at", "ticker"])["share_change"].sum().unstack(fill_value=0)
+    else:
+        daily_shares = pd.DataFrame()
+
+    all_days = pd.date_range(inception_str, today.strftime("%Y-%m-%d"))
+    if not daily_shares.empty:
+        daily_shares = daily_shares.reindex(all_days).fillna(0).cumsum()
+    else:
+        daily_shares = pd.DataFrame(index=all_days)
+        
+    daily_cf = daily_cf.reindex(all_days).fillna(0)
+
+    tickers_to_use = [t for t in daily_shares.columns if t in close_df.columns]
+    
+    if tickers_to_use:
+        filled_prices = close_df[tickers_to_use].reindex(all_days).ffill().bfill()
+        daily_value = (daily_shares[tickers_to_use] * filled_prices).sum(axis=1)
+    else:
+        daily_value = pd.Series(0.0, index=all_days)
+
+    v_prev = daily_value.shift(1).fillna(0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        r_t = (daily_value - daily_cf) / v_prev - 1
+    
+    r_t = r_t.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    r_t.iloc[0] = 0.0
+    portfolio_daily = r_t
+
+    current_value = daily_value.iloc[-1] if not daily_value.empty else 0.0
+    total_invested = daily_cf.sum()
     unrealized_pnl = current_value - total_invested
+
     total_return_pct = None
     if total_invested > 0:
         total_return_pct = round(
             ((unrealized_pnl + total_realized_pnl + total_dividends) / total_invested) * 100, 2
         )
 
-    portfolio_daily = pd.Series(0.0, index=returns_df.index)
-    for ticker, weight in weights.items():
-        if ticker in returns_df.columns:
-            portfolio_daily += weight * returns_df[ticker].fillna(0)
+    returns_df = close_df.pct_change().dropna()
 
     def cum_return(series, start_date=None):
         if start_date:
@@ -375,8 +438,8 @@ async def get_portfolio_benchmarks(portfolio_id: int):
     for period_key, start in periods.items():
         portfolio_returns[period_key] = cum_return(portfolio_daily, start)
 
-    if total_return_pct is not None:
-        portfolio_returns["since_inception"] = total_return_pct
+    # Use TWR for since_inception to accurately compare against benchmarks.
+    # The simple ROI is still available via total_return_pct.
 
     benchmarks = []
     for bm_ticker, bm_name in [("^GSPC", "S&P 500"), ("^IXIC", "NASDAQ")]:
@@ -431,6 +494,7 @@ async def get_portfolio_benchmarks(portfolio_id: int):
         "total_return_pct": total_return_pct,
         "currency": target_currency,
     }
+
 
 @router.post("/portfolio/{portfolio_id}/holdings")
 async def add_holding(portfolio_id: int, request: HoldingRequest):
