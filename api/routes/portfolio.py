@@ -57,7 +57,7 @@ async def list_portfolios(
             
             response.append({
                 "id": p.id,
-                "name": p.name,
+                "name": account_name if account_name else p.name,
                 "account_id": p.account_id,
                 "account_name": account_name,
                 "created_at": str(p.created_at)
@@ -209,7 +209,7 @@ async def get_portfolio(portfolio_id: int):
 
         return {
             "id": port.id,
-            "name": port.name,
+            "name": account_name if account_name else port.name,
             "account_id": port.account_id,
             "account_name": account_name,
             "currency": target_currency,
@@ -562,22 +562,46 @@ async def get_portfolio_benchmarks(portfolio_id: int):
 
 @router.post("/portfolio/{portfolio_id}/holdings")
 async def add_holding(portfolio_id: int, request: HoldingRequest):
-    """Add a new holding to a portfolio."""
+    """Add a new holding to a portfolio. Aggregates if ticker already exists."""
     async with async_session() as session:
         port = await session.get(Portfolio, portfolio_id)
         if not port:
             return {"error": f"Portfolio {portfolio_id} not found"}
 
-        holding = PortfolioHolding(
-            portfolio_id=portfolio_id,
-            ticker=request.ticker.upper(),
-            shares=request.shares,
-            avg_cost_basis=request.avg_cost_basis,
+        ticker_upper = request.ticker.upper()
+        
+        # Check if holding already exists
+        result = await session.execute(
+            select(PortfolioHolding)
+            .where(PortfolioHolding.portfolio_id == portfolio_id)
+            .where(PortfolioHolding.ticker == ticker_upper)
         )
-        session.add(holding)
-        await session.commit()
-        await session.refresh(holding)
-        return {"id": holding.id, "ticker": holding.ticker, "shares": holding.shares, "avg_cost_basis": holding.avg_cost_basis}
+        existing = result.scalars().first()
+        
+        if existing:
+            # Aggregate shares and compute new weighted average cost basis
+            total_shares = existing.shares + request.shares
+            if total_shares > 0:
+                new_avg = ((existing.shares * existing.avg_cost_basis) + (request.shares * request.avg_cost_basis)) / total_shares
+            else:
+                new_avg = 0.0
+                
+            existing.shares = total_shares
+            existing.avg_cost_basis = new_avg
+            await session.commit()
+            await session.refresh(existing)
+            return {"id": existing.id, "ticker": existing.ticker, "shares": existing.shares, "avg_cost_basis": existing.avg_cost_basis}
+        else:
+            holding = PortfolioHolding(
+                portfolio_id=portfolio_id,
+                ticker=ticker_upper,
+                shares=request.shares,
+                avg_cost_basis=request.avg_cost_basis,
+            )
+            session.add(holding)
+            await session.commit()
+            await session.refresh(holding)
+            return {"id": holding.id, "ticker": holding.ticker, "shares": holding.shares, "avg_cost_basis": holding.avg_cost_basis}
 
 @router.put("/portfolio/{portfolio_id}/holdings/{holding_id}")
 async def update_holding(portfolio_id: int, holding_id: int, request: HoldingRequest):
