@@ -172,6 +172,18 @@ export function usePortfolio() {
         refresh()
     }
 
+    const renamePortfolio = async (portfolioId: number, name: string) => {
+        await apiFetch(`/api/portfolio/${portfolioId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name }),
+        })
+        const list = await apiFetch('/api/portfolio')
+        setPortfoliosList(list)
+        if (portfolio?.id === portfolioId) {
+            setPortfolio((prev) => prev ? { ...prev, name } : null)
+        }
+    }
+
     const unlinkPortfolioFromAccount = async (portfolioId: number) => {
         await apiFetch(`/api/portfolio/${portfolioId}`, {
             method: 'PATCH',
@@ -261,6 +273,7 @@ export function usePortfolio() {
         importCsv,
         createPortfolio,
         deletePortfolio,
+        renamePortfolio,
         linkPortfolioToAccount,
         unlinkPortfolioFromAccount,
         fetchRealized,

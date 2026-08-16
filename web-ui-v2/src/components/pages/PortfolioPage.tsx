@@ -158,6 +158,7 @@ export function PortfolioPage() {
         importCsv,
         createPortfolio,
         deletePortfolio,
+        renamePortfolio,
         linkPortfolioToAccount,
         unlinkPortfolioFromAccount,
         fetchRealized,
@@ -170,6 +171,8 @@ export function PortfolioPage() {
     const [linkingAccountId, setLinkingAccountId] = useState<string>('')
     const [showCreatePortfolioModal, setShowCreatePortfolioModal] = useState(false)
     const [newPortfolioName, setNewPortfolioName] = useState('')
+    const [showRenamePortfolioModal, setShowRenamePortfolioModal] = useState(false)
+    const [renamePortfolioName, setRenamePortfolioName] = useState('')
 
     const handlePortfolioChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const id = parseInt(e.target.value, 10)
@@ -191,6 +194,17 @@ export function PortfolioPage() {
             await createPortfolio(name)
             setNewPortfolioName('')
             setShowCreatePortfolioModal(false)
+        } catch (err: any) {
+            console.error(err)
+        }
+    }
+
+    const handleRenamePortfolio = async (name: string) => {
+        if (!name.trim() || !selectedPortfolioId) return
+        try {
+            await renamePortfolio(selectedPortfolioId, name)
+            setRenamePortfolioName('')
+            setShowRenamePortfolioModal(false)
         } catch (err: any) {
             console.error(err)
         }
@@ -410,18 +424,34 @@ export function PortfolioPage() {
                                             <Plus size={16} />
                                         </button>
                                         {selectedPortfolioId && (
-                                            <button 
-                                                className="btn btn--secondary" 
-                                                onClick={() => {
-                                                    if (window.confirm('Are you sure you want to delete this portfolio?')) {
-                                                        deletePortfolio(selectedPortfolioId)
-                                                    }
-                                                }}
-                                                style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-red)', borderColor: 'rgba(255, 23, 68, 0.2)', background: 'rgba(255, 23, 68, 0.05)' }}
-                                                title="Delete Portfolio"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
+                                            <>
+                                                <button 
+                                                    className="btn btn--secondary" 
+                                                    onClick={() => {
+                                                        const p = portfoliosList.find((x: any) => x.id === selectedPortfolioId)
+                                                        if (p) {
+                                                            setRenamePortfolioName(p.name)
+                                                            setShowRenamePortfolioModal(true)
+                                                        }
+                                                    }}
+                                                    style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                    title="Rename Portfolio"
+                                                >
+                                                    <Edit3 size={16} />
+                                                </button>
+                                                <button 
+                                                    className="btn btn--secondary" 
+                                                    onClick={() => {
+                                                        if (window.confirm('Are you sure you want to delete this portfolio?')) {
+                                                            deletePortfolio(selectedPortfolioId)
+                                                        }
+                                                    }}
+                                                    style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-red)', borderColor: 'rgba(255, 23, 68, 0.2)', background: 'rgba(255, 23, 68, 0.05)' }}
+                                                    title="Delete Portfolio"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </>
                                         )}
                                     </div>
                                 ) : (
@@ -1045,7 +1075,7 @@ export function PortfolioPage() {
                             </div>
                             <div className="modal__footer">
                                 <button className="btn btn--secondary" onClick={() => setShowCreatePortfolioModal(false)}>Cancel</button>
-                                <button 
+                                        <button 
                                     className="btn btn--primary" 
                                     onClick={() => handleCreatePortfolio(newPortfolioName)}
                                     disabled={!newPortfolioName.trim()}
@@ -1057,6 +1087,43 @@ export function PortfolioPage() {
                     </div>
                 )}
 
+                {/* Rename Portfolio Modal */}
+                {showRenamePortfolioModal && (
+                    <div className="modal-overlay" onClick={() => setShowRenamePortfolioModal(false)}>
+                        <div className="modal" onClick={e => e.stopPropagation()}>
+                            <div className="modal__header">
+                                <h3>Rename Portfolio</h3>
+                                <button className="icon-btn" onClick={() => setShowRenamePortfolioModal(false)}><X size={18} /></button>
+                            </div>
+                            <div className="modal__body">
+                                <label>
+                                    Portfolio Name
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Trading 212 ISA"
+                                        value={renamePortfolioName}
+                                        onChange={e => setRenamePortfolioName(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                handleRenamePortfolio(renamePortfolioName)
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
+                            <div className="modal__footer">
+                                <button className="btn btn--secondary" onClick={() => setShowRenamePortfolioModal(false)}>Cancel</button>
+                                <button 
+                                    className="btn btn--primary" 
+                                    onClick={() => handleRenamePortfolio(renamePortfolioName)}
+                                    disabled={!renamePortfolioName.trim()}
+                                >
+                                    Rename
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Import CSV Modal */}
                 {showImportModal && (
