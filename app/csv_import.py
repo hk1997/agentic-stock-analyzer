@@ -38,7 +38,9 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         elif fl in ['ticker', 'symbol', 'instrument', 'grant identifier']:
             field_map['Ticker'] = f
         elif fl in ['no. of shares', 'quantity', 'shares', 'release quantity', 'net shares']:
-            field_map['Shares'] = f
+            # Prefer 'net shares' over 'release quantity' or 'quantity' for RSUs (tax deducted)
+            if 'Shares' not in field_map or fl == 'net shares' or (fl == 'shares' and field_map['Shares'].lower() != 'net shares'):
+                field_map['Shares'] = f
         elif fl in ['price / share', 'price', 'fairmarketvalueprice', 'fmv']:
             field_map['Price'] = f
         elif fl in ['time', 'time (utc)', 'date', 'release date', 'transaction date']:
@@ -67,6 +69,8 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         if action_val in ['restricted stock lapse', 'lapse', 'release', 'vest', 'vesting']:
             action = 'market buy'
             is_rsu_vest = True
+        elif action_val in ['sell to cover', 'taxes', 'tax withholding', 'sell to cover taxes']:
+            action = 'market sell'
         else:
             action = action_val
             
@@ -81,7 +85,7 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         # or if the user uploads a Meta/Google CSV we could try to guess from the file name, 
         # but for now 'UNKNOWN' is safer if completely missing.
         if not ticker:
-            if is_rsu_vest:
+            if is_rsu_vest or action_val in ['sell to cover', 'taxes', 'tax withholding', 'sell to cover taxes']:
                 # If they are uploading Meta/Google RSU vests without ticker, try to guess from description or just set to RSU
                 desc = row.get(field_map.get('Name', ''), '').strip().lower()
                 if 'meta' in desc or 'facebook' in desc:
