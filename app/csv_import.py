@@ -108,6 +108,36 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         if shares == 0:
             continue
 
+        # If price is 0 (some brokers don't provide it), try to auto-fetch the historical price
+        if price == 0 and ticker and ticker != 'UNKNOWN':
+            try:
+                import yfinance as yf
+                from datetime import timedelta
+                # We need the executed_at date to fetch historical price
+                time_str = row.get(field_map.get('Date', ''), '').strip()
+                temp_date = None
+                if time_str:
+                    for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%m/%d/%Y %H:%M:%S', '%m/%d/%Y', '%d/%m/%Y', '%d-%b-%Y']:
+                        try:
+                            temp_date = datetime.strptime(time_str, fmt)
+                            break
+                        except ValueError:
+                            continue
+                if not temp_date:
+                    try:
+                        temp_date = datetime.fromisoformat(time_str)
+                    except ValueError:
+                        temp_date = datetime.now()
+                
+                # Fetch closing price for that day
+                start_d = temp_date.strftime('%Y-%m-%d')
+                end_d = (temp_date + timedelta(days=3)).strftime('%Y-%m-%d')
+                data = yf.download(ticker, start=start_d, end=end_d, progress=False)
+                if not data.empty:
+                    price = float(data['Close'].iloc[0].item())
+            except Exception:
+                pass
+
         # Parse optional fields
         name = row.get(field_map.get('Name', ''), '').strip()
         external_id = row.get(field_map.get('ID', ''), '').strip()
