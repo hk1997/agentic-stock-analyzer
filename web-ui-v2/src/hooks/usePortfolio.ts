@@ -181,6 +181,20 @@ export function usePortfolio() {
         refresh()
     }
 
+    const deletePortfolio = async (portfolioId: number) => {
+        await apiFetch(`/api/portfolio/${portfolioId}`, {
+            method: 'DELETE',
+        })
+        const list = await apiFetch('/api/portfolio')
+        setPortfoliosList(list)
+        if (list.length > 0) {
+            setSelectedPortfolioId(list[0].id)
+        } else {
+            setSelectedPortfolioId(null)
+            setPortfolio(null)
+        }
+    }
+
     const addHolding = async (ticker: string, shares: number, avgCostBasis: number) => {
         if (viewMode === 'unified' || !selectedPortfolioId) return
         await apiFetch(`/api/portfolio/${selectedPortfolioId}/holdings`, {
@@ -246,6 +260,7 @@ export function usePortfolio() {
         removeHolding,
         importCsv,
         createPortfolio,
+        deletePortfolio,
         linkPortfolioToAccount,
         unlinkPortfolioFromAccount,
         fetchRealized,
