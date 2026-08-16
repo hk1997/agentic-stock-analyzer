@@ -608,11 +608,11 @@ async def delete_holding(portfolio_id: int, holding_id: int):
 @router.post("/portfolio/{portfolio_id}/import/csv")
 async def import_csv(portfolio_id: int, file: UploadFile = File(...)):
     """
-    Import transactions from a Trading 212 CSV export.
-    Stores every transaction row (buy/sell/dividend) with dedup by external_id.
+    Import transactions from CSV export (Trading 212, Schwab, Morgan Stanley).
+    Stores every transaction row (buy/sell/dividend/vest) with dedup by external_id.
     Recomputes holdings from the full transaction log.
     """
-    from app.t212_import import parse_t212_transactions, compute_holdings
+    from app.csv_import import detect_and_parse_csv, compute_holdings
 
     if file.filename and not file.filename.lower().endswith('.csv'):
         return {"error": "Please upload a CSV file"}
@@ -624,7 +624,7 @@ async def import_csv(portfolio_id: int, file: UploadFile = File(...)):
         return {"error": "Could not decode file. Please ensure it is a UTF-8 CSV."}
 
     try:
-        transactions = parse_t212_transactions(file_content)
+        transactions = detect_and_parse_csv(file_content)
     except ValueError as exc:
         return {"error": str(exc)}
 

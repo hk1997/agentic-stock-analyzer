@@ -1130,7 +1130,7 @@ export function PortfolioPage() {
                     <div className="modal-overlay" onClick={closeImportModal}>
                         <div className="modal modal--import" onClick={e => e.stopPropagation()}>
                             <div className="modal__header">
-                                <h3><Upload size={20} /> Import from Trading 212</h3>
+                                <h3><Upload size={20} /> Import CSV</h3>
                                 <button className="icon-btn" onClick={closeImportModal}><X size={18} /></button>
                             </div>
                             <div className="modal__body">
@@ -1161,8 +1161,8 @@ export function PortfolioPage() {
                                 {(!importResult || importResult.error) && (
                                     <>
                                         <p className="import-instructions">
-                                            Export your transaction history from Trading 212 as CSV:<br />
-                                            <strong>History → Export → CSV</strong>
+                                            Upload transaction history CSV.<br />
+                                            <strong>Supported:</strong> Trading 212, Charles Schwab (Meta RSUs), Morgan Stanley (Google RSUs)
                                         </p>
                                         <div
                                             className={`import-dropzone ${dragOver ? 'import-dropzone--active' : ''} ${importFile ? 'import-dropzone--has-file' : ''}`}
