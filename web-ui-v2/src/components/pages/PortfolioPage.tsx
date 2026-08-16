@@ -157,6 +157,7 @@ export function PortfolioPage() {
         removeHolding,
         importCsv,
         createPortfolio,
+        deletePortfolio,
         linkPortfolioToAccount,
         unlinkPortfolioFromAccount,
         fetchRealized,
@@ -408,6 +409,20 @@ export function PortfolioPage() {
                                         >
                                             <Plus size={16} />
                                         </button>
+                                        {selectedPortfolioId && (
+                                            <button 
+                                                className="btn btn--secondary" 
+                                                onClick={() => {
+                                                    if (window.confirm('Are you sure you want to delete this portfolio?')) {
+                                                        deletePortfolio(selectedPortfolioId)
+                                                    }
+                                                }}
+                                                style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-red)', borderColor: 'rgba(255, 23, 68, 0.2)', background: 'rgba(255, 23, 68, 0.05)' }}
+                                                title="Delete Portfolio"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
                                     </div>
                                 ) : (
                                     <h1>Unified Portfolio</h1>
