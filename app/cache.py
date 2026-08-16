@@ -136,6 +136,23 @@ async def get_live_price(ticker: str, fallback: float = 0.0) -> float:
                 current_price = float(hist["Close"].iloc[-1])
 
         current_price = float(current_price) if current_price else 0.0
+        
+        if current_price == 0.0 and not ticker.endswith(".L"):
+            # Try London Stock Exchange fallback
+            l_price = await get_live_price(f"{ticker}.L", fallback=0.0)
+            if l_price > 0.0:
+                # We got a valid price from the .L fallback!
+                # Copy the currency/sector/name from the .L cache to the original ticker cache
+                l_currency = await get_cache(f"currency:{ticker}.L") or "GBP"
+                l_sector = await get_cache(f"sector:{ticker}.L") or "Unknown"
+                l_name = await get_cache(f"name:{ticker}.L") or ticker
+                
+                await set_cache(cache_key, str(l_price), ttl_seconds=300)
+                await set_cache(f"currency:{ticker}", l_currency.upper(), ttl_seconds=86400)
+                await set_cache(f"sector:{ticker}", l_sector, ttl_seconds=86400)
+                await set_cache(f"name:{ticker}", l_name, ttl_seconds=86400)
+                return l_price
+
         currency = "USD"
         sector = "Unknown"
         name = ticker
