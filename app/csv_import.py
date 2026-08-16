@@ -64,9 +64,9 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         action_val = row.get(field_map.get('Action', ''), '').strip().lower()
         
         # Meta/Schwab RSU vest is often "restricted stock lapse"
-        # Google/Morgan Stanley might be "release" or "vest"
+        # Google/Morgan Stanley might be "release", "vest", or "deposit"
         is_rsu_vest = False
-        if action_val in ['restricted stock lapse', 'lapse', 'release', 'vest', 'vesting']:
+        if action_val in ['restricted stock lapse', 'lapse', 'release', 'vest', 'vesting', 'deposit']:
             action = 'market buy'
             is_rsu_vest = True
         elif action_val in ['sell to cover', 'taxes', 'tax withholding', 'sell to cover taxes']:
@@ -170,8 +170,14 @@ def detect_and_parse_csv(file_content: str) -> list[dict]:
         if not executed_at:
             executed_at = datetime.now()
 
+        # Generate deterministic external ID for deduplication if missing
+        if not external_id:
+            import hashlib
+            raw_str = f"{executed_at.isoformat()}_{action}_{ticker}_{shares}_{price}"
+            external_id = hashlib.md5(raw_str.encode()).hexdigest()
+
         transactions.append({
-            "external_id": external_id or None,
+            "external_id": external_id,
             "action": action,
             "ticker": ticker,
             "name": name,
